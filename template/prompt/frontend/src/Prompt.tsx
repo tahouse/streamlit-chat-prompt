@@ -135,20 +135,28 @@ class ChatInput extends StreamlitComponentBase<State> {
             display: "flex",
             flexDirection: "column",
             backgroundColor: theme?.secondaryBackgroundColor,
-            borderRadius: 1,
-            minHeight: "48px", // Set a smaller initial height
+            borderRadius: 2,
+            minHeight: "20px", // Set a smaller initial height
             maxHeight: "300px",
             // overflow: "hidden",
             position: "relative", // Need this for absolute positioning
             p: 1.5, // Consistent padding all around
           }}
         >
+          <input
+            type="file"
+            multiple
+            accept="image/*"
+            hidden
+            ref={this.fileInputRef}
+            onChange={this.handleFileUpload}
+          />
           <Box
             sx={{
               flex: 1,
               display: "flex",
               // overflow: "auto",
-              mr: "70px", // Make space for buttons
+              mr: "50px", // Make space for buttons
             }}
           >
             <TextField
@@ -191,7 +199,7 @@ class ChatInput extends StreamlitComponentBase<State> {
               alignItems: "center",
               position: "absolute",
               right: "12px",
-              bottom: "4px", // Center vertically
+              bottom: "8px", // Center vertically
               transform: "translateY(-50%)", // Perfect vertical centering
               backgroundColor: theme?.secondaryBackgroundColor,
             }}
@@ -201,7 +209,7 @@ class ChatInput extends StreamlitComponentBase<State> {
               onClick={() => this.fileInputRef.current?.click()}
               sx={{
                 color: theme?.textColor,
-                padding: "4px",
+                padding: "0px",
                 "&:hover": {
                   color: theme?.primaryColor,
                 },
@@ -215,7 +223,7 @@ class ChatInput extends StreamlitComponentBase<State> {
               onClick={this.handleSubmit}
               sx={{
                 color: theme?.textColor,
-                padding: "4px",
+                padding: "0px",
                 "&:hover": {
                   color: theme?.primaryColor,
                 },
