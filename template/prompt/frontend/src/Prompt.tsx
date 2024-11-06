@@ -114,8 +114,7 @@ class ChatInput extends StreamlitComponentBase<State> {
                   size="small"
                   sx={{
                     position: "absolute",
-                    right: 2,
-                    top: 2,
+                    padding: "4px",
                     backgroundColor: `${theme?.secondaryBackgroundColor}cc`,
                     color: theme?.textColor,
                     "&:hover": {
@@ -134,19 +133,27 @@ class ChatInput extends StreamlitComponentBase<State> {
         <Box
           sx={{
             display: "flex",
-            alignItems: "center", // Center items vertically
-            gap: 1,
+            flexDirection: "column",
             backgroundColor: theme?.secondaryBackgroundColor,
             borderRadius: 1,
-            py: 0.5, // Reduced vertical padding
-            px: 1.5, // Keep some horizontal padding
-            minHeight: "40px", // Set a consistent height
+            minHeight: "48px", // Set a smaller initial height
+            maxHeight: "300px",
+            // overflow: "hidden",
+            position: "relative", // Need this for absolute positioning
+            p: 1.5, // Consistent padding all around
           }}
         >
-          <Box sx={{ flex: 1, display: "flex", alignItems: "center" }}>
+          <Box
+            sx={{
+              flex: 1,
+              display: "flex",
+              // overflow: "auto",
+              mr: "70px", // Make space for buttons
+            }}
+          >
             <TextField
               multiline
-              maxRows={20}
+              maxRows={11}
               fullWidth
               value={this.state.message}
               onChange={(e) => this.setState({ message: e.target.value })}
@@ -154,7 +161,8 @@ class ChatInput extends StreamlitComponentBase<State> {
               placeholder="What can I help with?"
               variant="standard"
               sx={{
-                margin: 0,
+                overflowY: "auto", // Move the scroll to the TextField itself
+                maxHeight: "calc(11 * 1.5em)", // maxRows * lineHeight
                 "& .MuiInput-root": {
                   margin: 0,
                   color: theme?.textColor,
@@ -168,48 +176,52 @@ class ChatInput extends StreamlitComponentBase<State> {
                     color: `${theme?.textColor}99`,
                     opacity: 1,
                   },
-                  padding: "4px 0", // Reduced padding
+                  padding: 0, // Remove padding from input
+                  lineHeight: "1.5",
+                  minHeight: "24px", // Matches single line height
                 },
               }}
             />
           </Box>
 
-          <input
-            type="file"
-            multiple
-            accept="image/*"
-            hidden
-            ref={this.fileInputRef}
-            onChange={this.handleFileUpload}
-          />
-
-          <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
+          <Box
+            sx={{
+              display: "flex",
+              gap: 0.5,
+              alignItems: "center",
+              position: "absolute",
+              right: "12px",
+              bottom: "4px", // Center vertically
+              transform: "translateY(-50%)", // Perfect vertical centering
+              backgroundColor: theme?.secondaryBackgroundColor,
+            }}
+          >
             <IconButton
-              size="small" // Made buttons smaller
+              size="small"
               onClick={() => this.fileInputRef.current?.click()}
               sx={{
                 color: theme?.textColor,
-                padding: "4px", // Reduced padding
+                padding: "4px",
                 "&:hover": {
                   color: theme?.primaryColor,
                 },
               }}
             >
-              <AttachFile fontSize="small" /> {/* Made icon smaller */}
+              <AttachFile fontSize="small" />
             </IconButton>
 
             <IconButton
-              size="small" // Made buttons smaller
+              size="small"
               onClick={this.handleSubmit}
               sx={{
                 color: theme?.textColor,
-                padding: "4px", // Reduced padding
+                padding: "4px",
                 "&:hover": {
                   color: theme?.primaryColor,
                 },
               }}
             >
-              <Send fontSize="small" /> {/* Made icon smaller */}
+              <Send fontSize="small" />
             </IconButton>
           </Box>
         </Box>
