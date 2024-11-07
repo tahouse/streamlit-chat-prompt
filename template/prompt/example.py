@@ -48,7 +48,7 @@ st.markdown(
 )
 with st.sidebar:
     st.markdown("test")
-message = prompt(name="foo", key="bar")
+message = prompt(name="foo", placeholder="Hi there!", key="bar")
 if message:
     st.write("Message:", message)
     # if images:

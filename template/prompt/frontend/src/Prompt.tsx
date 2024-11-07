@@ -223,7 +223,7 @@ class ChatInput extends StreamlitComponentBase<State> {
               value={this.state.message}
               onChange={(e) => this.setState({ message: e.target.value })}
               onKeyDown={this.handleKeyDown}
-              placeholder="What can I help with?"
+              placeholder={this.props.args["placeholder"]}
               variant="standard"
               sx={{
                 overflowY: "auto", // Move the scroll to the TextField itself
