@@ -84,6 +84,14 @@ class ChatInput extends StreamlitComponentBase<State> {
 
   componentDidMount() {
     document.addEventListener("paste", this.handlePasteEvent)
+
+    // Notify Streamlit that the component is ready
+    Streamlit.setFrameHeight()
+
+    // Force a re-render after a short delay
+    setTimeout(() => {
+      Streamlit.setFrameHeight()
+    }, 100)
   }
 
   componentWillUnmount() {
