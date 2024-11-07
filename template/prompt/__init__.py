@@ -1,11 +1,14 @@
 import os
 import streamlit.components.v1 as components
+import streamlit as st
+from dataclasses import dataclass
+from typing import Callable, List, Optional
 
 # Create a _RELEASE constant. We'll set this to False while we're developing
 # the component, and True when we're ready to package and distribute it.
 # (This is, of course, optional - there are innumerable ways to manage your
 # release process.)
-_RELEASE = False
+_RELEASE = True
 
 # Declare a Streamlit component. `declare_component` returns a function
 # that is used to create instances of the component. We're naming this
@@ -38,42 +41,104 @@ else:
     _component_func = components.declare_component("prompt", path=build_dir)
 
 
+@dataclass
+class PromptReturn:
+    message: Optional[str] = None
+    images: Optional[List[str]] = None
+
+
+_prompt_singleton_key: Optional[str] = None
+
+
 # Create a wrapper function for the component. This is an optional
 # best practice - we could simply expose the component function returned by
 # `declare_component` and call it done. The wrapper allows us to customize
 # our component's API: we can pre-process its input args, post-process its
 # output value, and add a docstring for users.
-def prompt(name, placeholder="What's up?", key=None):
-    """Create a new instance of "prompt".
+def prompt(
+    name: str, key: str, placeholder="Hi there! What should we talk about?"
+) -> Optional[PromptReturn]:
+    """Create a chat-like prompt input at the bottom of the page.
 
-    Parameters
-    ----------
-    name: str
-        The name of the thing we're saying hello to. The component will display
-        the text "Hello, {name}!"
-    key: str or None
-        An optional key that uniquely identifies this component. If this is
-        None, and the component's arguments are changed, the component will
-        be re-mounted in the Streamlit frontend and lose its current state.
+    This function creates a single chat-like prompt input component that appears fixed
+    at the bottom of the Streamlit app. It allows users to enter text and submit it.
 
-    Returns
-    -------
-    int
-        The number of times the component's "Click Me" button has been clicked.
-        (This is the value passed to `Streamlit.setComponentValue` on the
-        frontend.)
+    Args:
+        name (str): A unique identifier for this prompt instance. Used internally
+            for managing state.
+        key (str): Used to ensure only a single prompt can be created.
+        placeholder (str, optional): The placeholder text shown in the input field
+            before the user enters anything. Defaults to "Hi there! What should we
+            talk about?".
 
+    Returns:
+        Optional[PromptReturn]: Returns a PromptReturn object containing the text
+        entered by the user when submitted, or None if nothing has been submitted yet.
+
+    Raises:
+        RuntimeError: If multiple prompt instances are detected in the app.
+
+    Note:
+        Currently only one prompt instance is supported per app. The prompt appears
+        fixed at the bottom of the page above any padding/margins.
     """
+    global _prompt_singleton_key
+
+    if _prompt_singleton_key and _prompt_singleton_key != key:
+        raise RuntimeError(
+            "Multiple prompt instances detected. Only one prompt component can be used per Streamlit app. "
+            "Please ensure you're only creating a single prompt instance in your application."
+        )
+        # raise RuntimeError(
+        #     "Multiple prompt instances detected. Currently, only one prompt component can be used per Streamlit app. Please ensure you're only creating a single prompt instance in your application."
+        # )
+
+    st.markdown(
+        """
+    <style>
+    [data-testid="stCustomComponentV1"] {
+        position: fixed;
+        bottom: 1rem;
+        z-index: 1000;
+    }
+
+    /* Main content area */
+    section[data-testid="stMainContainer"] {
+        padding-bottom: 100px;  /* Make room for the fixed component */
+    }
+
+    /* When sidebar is expanded */
+    .sidebar-expanded [data-testid="stCustomComponentV1"] {
+        left: calc((100% - 245px) / 2 + 245px);  /* 245px is default sidebar width */
+        width: calc(min(800px, 100% - 245px - 2rem)) !important;
+        transform: translateX(-50%);
+    }
+
+    /* When sidebar is collapsed */
+    .sidebar-collapsed [data-testid="stCustomComponentV1"] {
+        left: 50%;
+        width: calc(min(800px, 100% - 2rem)) !important;
+        transform: translateX(-50%);
+    }
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
     # Call through to our private component function. Arguments we pass here
     # will be sent to the frontend, where they'll be available in an "args"
     # dictionary.
     #
     # "default" is a special argument that specifies the initial return
     # value of the component before the user has interacted with it.
-    component_value = _component_func(
-        name=name, placeholder=placeholder, key=key, default=None
-    )
+    component_value = _component_func(name=name, placeholder=placeholder, default=None)
+
+    _prompt_singleton_key = key
 
     # We could modify the value returned from the component if we wanted.
     # There's no need to do this in our simple example - but it's an option.
-    return component_value
+    if component_value:
+        return PromptReturn(
+            message=component_value.get("message"), images=component_value.get("images")
+        )
+    return None
