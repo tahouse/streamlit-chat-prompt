@@ -24,6 +24,7 @@ interface State {
 
 class ChatInput extends StreamlitComponentBase<State> {
   private fileInputRef: React.RefObject<HTMLInputElement>
+  private handlePasteEvent: (e: ClipboardEvent) => void
 
   constructor(props: any) {
     super(props)
@@ -36,15 +37,73 @@ class ChatInput extends StreamlitComponentBase<State> {
 
     // Bind methods to this
     this.handleSubmit = this.handleSubmit.bind(this)
-    this.handleKeyPress = this.handleKeyPress.bind(this)
+    this.handleKeyDown = this.handleKeyDown.bind(this)
     this.handleFileUpload = this.handleFileUpload.bind(this)
     this.removeImage = this.removeImage.bind(this)
+
+    // Initialize handlePasteEvent
+    this.handlePasteEvent = (e: ClipboardEvent) => {
+      e.preventDefault()
+
+      const clipboardData = e.clipboardData
+      if (!clipboardData) return
+
+      // Handle files from clipboard
+      const files = clipboardData.files
+      if (files.length > 0) {
+        const filesArray = Array.from(files)
+        this.setState((prevState) => ({
+          images: [...prevState.images, ...filesArray],
+        }))
+        return
+      }
+
+      // Handle images from clipboard
+      const items = Array.from(clipboardData.items || [])
+      items.forEach((item) => {
+        if (item.type.indexOf("image") !== -1) {
+          const blob = item.getAsFile()
+          if (blob) {
+            this.setState((prevState) => ({
+              images: [...prevState.images, blob],
+            }))
+          }
+        }
+      })
+
+      // Handle text separately if needed
+      const text = clipboardData.getData("text")
+      if (text) {
+        const activeElement = document.activeElement
+        if (activeElement?.tagName === "TEXTAREA") {
+          return
+        }
+      }
+    }
+  }
+
+  componentDidMount() {
+    document.addEventListener("paste", this.handlePasteEvent)
+  }
+
+  componentWillUnmount() {
+    document.removeEventListener("paste", this.handlePasteEvent)
+  }
+
+  handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files) {
+      this.setState({
+        images: [...this.state.images, ...Array.from(e.target.files)],
+      })
+    }
   }
 
   handleSubmit() {
-    const reader = new FileReader()
+    if (!this.state.message && this.state.images.length === 0) return
+
     const imagePromises = this.state.images.map((image) => {
       return new Promise((resolve) => {
+        const reader = new FileReader()
         reader.onloadend = () => resolve(reader.result)
         reader.readAsDataURL(image)
       })
@@ -62,19 +121,9 @@ class ChatInput extends StreamlitComponentBase<State> {
     })
   }
 
-  handleKeyPress(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      this.handleSubmit()
-    }
-  }
-
-  handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    if (e.target.files) {
-      this.setState({
-        images: [...this.state.images, ...Array.from(e.target.files)],
-      })
-    }
+  validateFile(file: File): boolean {
+    const validTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"]
+    return validTypes.includes(file.type)
   }
 
   removeImage(index: number) {
@@ -83,12 +132,20 @@ class ChatInput extends StreamlitComponentBase<State> {
     })
   }
 
+  handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault()
+      this.handleSubmit()
+    }
+  }
+
   render() {
     const { theme } = this.props
 
     return (
       <Paper
         elevation={3}
+        // component="div"
         sx={{
           display: "flex",
           flexDirection: "column",
@@ -165,7 +222,7 @@ class ChatInput extends StreamlitComponentBase<State> {
               fullWidth
               value={this.state.message}
               onChange={(e) => this.setState({ message: e.target.value })}
-              onKeyPress={this.handleKeyPress}
+              onKeyDown={this.handleKeyDown}
               placeholder="What can I help with?"
               variant="standard"
               sx={{
