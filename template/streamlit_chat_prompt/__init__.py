@@ -1,8 +1,31 @@
 import os
+from types import FrameType
+
+from streamlit.components.types.base_component_registry import BaseComponentRegistry
+import inspect
 import streamlit.components.v1 as components
+from streamlit.components.v1.custom_component import CustomComponent
 import streamlit as st
 from dataclasses import dataclass
-from typing import Callable, List, Optional
+from typing import Any, Callable, List, Optional
+from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
+from streamlit.runtime.state.widgets import register_widget
+from pprint import pformat
+from streamlit.runtime import get_instance
+from streamlit.components.types.base_custom_component import BaseCustomComponent
+from streamlit.dataframe_util import is_dataframe_like
+from streamlit.delta_generator_singletons import get_dg_singleton_instance
+from streamlit.elements.lib.form_utils import current_form_id
+from streamlit.elements.lib.policies import check_cache_replay_rules
+from streamlit.elements.lib.utils import compute_and_register_element_id
+from streamlit.errors import StreamlitAPIException
+from streamlit.proto.Components_pb2 import ArrowTable as ArrowTableProto
+from streamlit.proto.Components_pb2 import SpecialArg
+from streamlit.proto.Element_pb2 import Element
+from streamlit.runtime.metrics_util import gather_metrics
+from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
+from streamlit.runtime.state import register_widget
+from streamlit.type_util import is_bytes_like, to_bytes
 
 # Create a _RELEASE constant. We'll set this to False while we're developing
 # the component, and True when we're ready to package and distribute it.
@@ -89,9 +112,6 @@ def prompt(
             "Multiple prompt instances detected. Only one prompt component can be used per Streamlit app. "
             "Please ensure you're only creating a single prompt instance in your application."
         )
-        # raise RuntimeError(
-        #     "Multiple prompt instances detected. Currently, only one prompt component can be used per Streamlit app. Please ensure you're only creating a single prompt instance in your application."
-        # )
 
     st.markdown(
         """
@@ -125,20 +145,32 @@ def prompt(
         unsafe_allow_html=True,
     )
 
+    ctx = get_script_run_ctx()
+
     # Call through to our private component function. Arguments we pass here
     # will be sent to the frontend, where they'll be available in an "args"
     # dictionary.
     #
     # "default" is a special argument that specifies the initial return
     # value of the component before the user has interacted with it.
-    component_value = _component_func(name=name, placeholder=placeholder, default=None)
+    if f"chat_prompt_{key}_prev_uuid" not in ctx.session_state:
+        ctx.session_state[f"chat_prompt_{key}_prev_uuid"] = None
 
+    component_value = _component_func(
+        name=name, placeholder=placeholder, default=None, key=key
+    )
     _prompt_singleton_key = key
 
-    # We could modify the value returned from the component if we wanted.
-    # There's no need to do this in our simple example - but it's an option.
-    if component_value:
+    if (
+        component_value
+        and component_value["uuid"] != ctx.session_state[f"chat_prompt_{key}_prev_uuid"]
+    ):
+        # we have a new message
+        ctx.session_state[f"chat_prompt_{key}_prev_uuid"] = component_value["uuid"]
         return PromptReturn(
-            message=component_value.get("message"), images=component_value.get("images")
+            message=component_value.get("message"),
+            images=component_value.get("images"),
         )
-    return None
+    else:
+        # either nothing new, or we've already seen this value
+        return None

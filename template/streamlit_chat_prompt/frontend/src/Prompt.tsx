@@ -17,6 +17,7 @@ import { AttachFile, Send } from "@mui/icons-material"
 import CloseIcon from "@mui/icons-material/Close"
 
 interface State {
+  uuid: string
   message: string
   images: File[]
   isFocused: boolean
@@ -30,6 +31,7 @@ class ChatInput extends StreamlitComponentBase<State> {
     super(props)
     this.fileInputRef = React.createRef<HTMLInputElement>()
     this.state = {
+      uuid: "",
       message: "",
       images: [],
       isFocused: false,
@@ -119,10 +121,12 @@ class ChatInput extends StreamlitComponentBase<State> {
 
     Promise.all(imagePromises).then((imageData) => {
       Streamlit.setComponentValue({
+        uuid: crypto.randomUUID(),
         message: this.state.message,
         images: imageData,
       })
       this.setState({
+        uuid: "",
         message: "",
         images: [],
       })

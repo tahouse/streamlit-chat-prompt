@@ -22,6 +22,9 @@ message = prompt(name="foo", key="better_chat_prompt", placeholder="Hi there!")
 # message2 = prompt(name="foo", key="another", placeholder="Hi !")
 
 st.write("Message:", message)
+if message:
+    message.message
+    message.images
 # if images:
 #     for img in images:
 #         st.image(img)
