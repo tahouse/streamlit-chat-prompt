@@ -43,27 +43,14 @@ class ChatInput extends StreamlitComponentBase<State> {
     this.handleFileUpload = this.handleFileUpload.bind(this)
     this.removeImage = this.removeImage.bind(this)
 
-    // Initialize handlePasteEvent
     this.handlePasteEvent = (e: ClipboardEvent) => {
-      const activeElement = document.activeElement as HTMLElement
-      const isTextField =
-        activeElement.tagName === "TEXTAREA" ||
-        (activeElement.tagName === "INPUT" &&
-          activeElement.getAttribute("type") === "text")
-
-      // If the active element is a text input or textarea, allow default paste behavior
-      if (isTextField) {
-        return
-      }
-
-      e.preventDefault()
-
       const clipboardData = e.clipboardData
       if (!clipboardData) return
 
-      // Handle files from clipboard
+      // Handle files and images from clipboard
       const files = clipboardData.files
       if (files.length > 0) {
+        e.preventDefault() // Prevent default only for file/image paste
         const filesArray = Array.from(files)
         this.setState((prevState) => ({
           images: [...prevState.images, ...filesArray],
@@ -71,10 +58,11 @@ class ChatInput extends StreamlitComponentBase<State> {
         return
       }
 
-      // Handle images from clipboard
+      // Handle images from clipboard items
       const items = Array.from(clipboardData.items || [])
       items.forEach((item) => {
         if (item.type.indexOf("image") !== -1) {
+          e.preventDefault() // Prevent default only for image paste
           const blob = item.getAsFile()
           if (blob) {
             this.setState((prevState) => ({
@@ -83,12 +71,6 @@ class ChatInput extends StreamlitComponentBase<State> {
           }
         }
       })
-
-      // Handle text separately if needed
-      const text = clipboardData.getData("text")
-      if (text && !isTextField) {
-        // Handle text pasting outside of text inputs if needed
-      }
     }
   }
 
@@ -191,6 +173,8 @@ class ChatInput extends StreamlitComponentBase<State> {
                   size="small"
                   sx={{
                     position: "absolute",
+                    top: 0,
+                    right: 0,
                     padding: "4px",
                     backgroundColor: `${theme?.secondaryBackgroundColor}cc`,
                     color: theme?.textColor,
