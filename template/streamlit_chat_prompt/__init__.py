@@ -1,32 +1,9 @@
 import os
-from types import FrameType
 
 from pydantic import BaseModel
-from streamlit.components.types.base_component_registry import BaseComponentRegistry
-import inspect
 import streamlit.components.v1 as components
-from streamlit.components.v1.custom_component import CustomComponent
 import streamlit as st
-from dataclasses import dataclass
-from typing import Any, Callable, List, Optional
-from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
-from streamlit.runtime.state.widgets import register_widget
-from pprint import pformat
-from streamlit.runtime import get_instance
-from streamlit.components.types.base_custom_component import BaseCustomComponent
-from streamlit.dataframe_util import is_dataframe_like
-from streamlit.delta_generator_singletons import get_dg_singleton_instance
-from streamlit.elements.lib.form_utils import current_form_id
-from streamlit.elements.lib.policies import check_cache_replay_rules
-from streamlit.elements.lib.utils import compute_and_register_element_id
-from streamlit.errors import StreamlitAPIException
-from streamlit.proto.Components_pb2 import ArrowTable as ArrowTableProto
-from streamlit.proto.Components_pb2 import SpecialArg
-from streamlit.proto.Element_pb2 import Element
-from streamlit.runtime.metrics_util import gather_metrics
-from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
-from streamlit.runtime.state import register_widget
-from streamlit.type_util import is_bytes_like, to_bytes
+from typing import List, Optional
 
 # Create a _RELEASE constant. We'll set this to False while we're developing
 # the component, and True when we're ready to package and distribute it.
@@ -76,7 +53,7 @@ class PromptReturn(BaseModel):
     images: Optional[List[ImageData]] = None
 
 
-_prompt_singleton_key: Optional[str] = None
+_prompt_main_singleton_key: Optional[str] = None
 
 
 # Create a wrapper function for the component. This is an optional
@@ -85,7 +62,10 @@ _prompt_singleton_key: Optional[str] = None
 # our component's API: we can pre-process its input args, post-process its
 # output value, and add a docstring for users.
 def prompt(
-    name: str, key: str, placeholder="Hi there! What should we talk about?"
+    name: str,
+    key: str,
+    placeholder="Hi there! What should we talk about?",
+    main_bottom: bool = True,
 ) -> Optional[PromptReturn]:
     """Create a chat-like prompt input at the bottom of the page.
 
@@ -111,47 +91,56 @@ def prompt(
         Currently only one prompt instance is supported per app. The prompt appears
         fixed at the bottom of the page above any padding/margins.
     """
-    global _prompt_singleton_key
+    if f"chat_prompt_{key}_prev_uuid" not in st.session_state:
+        st.session_state[f"chat_prompt_{key}_prev_uuid"] = None
 
-    if _prompt_singleton_key and _prompt_singleton_key != key:
-        raise RuntimeError(
-            "Multiple prompt instances detected. Only one prompt component can be used per Streamlit app. "
-            "Please ensure you're only creating a single prompt instance in your application."
-        )
+    if main_bottom:
+        global _prompt_main_singleton_key
 
-    st.markdown(
+        if _prompt_main_singleton_key and _prompt_main_singleton_key != key:
+            raise RuntimeError(
+                "Multiple prompt instances detected. Only one prompt component can be used per Streamlit app. "
+                "Please ensure you're only creating a single prompt instance in your application."
+            )
+        _prompt_main_singleton_key = key
+
+        # pin prompt to bottom of main area
+        st.markdown(
+            f"""
+        <style>
+        .st-key-{key}"""
+            + """ {
+            position: fixed;
+            bottom: 1rem;
+            z-index: 1000;
+        }
+
+        /* Main content area */
+        section[data-testid="stMain"] {
+            margin-bottom: 100px;  /* Make room for the fixed component */
+        }
+
+        /* When sidebar is expanded */
         """
-    <style>
-    [data-testid="stCustomComponentV1"] {
-        position: fixed;
-        bottom: 1rem;
-        z-index: 1000;
-    }
+            + f""".sidebar-expanded .st-key-{key}"""
+            + """ {
+            left: calc((100% - 245px) / 2 + 245px);  /* 245px is default sidebar width */
+            width: calc(min(800px, 100% - 245px - 2rem)) !important;
+            transform: translateX(-50%);
+        }
 
-    /* Main content area */
-    section[data-testid="stMainContainer"] {
-        padding-bottom: 100px;  /* Make room for the fixed component */
-    }
-
-    /* When sidebar is expanded */
-    .sidebar-expanded [data-testid="stCustomComponentV1"] {
-        left: calc((100% - 245px) / 2 + 245px);  /* 245px is default sidebar width */
-        width: calc(min(800px, 100% - 245px - 2rem)) !important;
-        transform: translateX(-50%);
-    }
-
-    /* When sidebar is collapsed */
-    .sidebar-collapsed [data-testid="stCustomComponentV1"] {
-        left: 50%;
-        width: calc(min(800px, 100% - 2rem)) !important;
-        transform: translateX(-50%);
-    }
-    </style>
-    """,
-        unsafe_allow_html=True,
-    )
-
-    ctx = get_script_run_ctx()
+        /* When sidebar is collapsed */
+        """
+            + f""".sidebar-collapsed .st-key-{key}"""
+            + """ {
+            left: 50%;
+            width: calc(min(800px, 100% - 2rem)) !important;
+            transform: translateX(-50%);
+        }
+        </style>
+        """,
+            unsafe_allow_html=True,
+        )
 
     # Call through to our private component function. Arguments we pass here
     # will be sent to the frontend, where they'll be available in an "args"
@@ -159,20 +148,16 @@ def prompt(
     #
     # "default" is a special argument that specifies the initial return
     # value of the component before the user has interacted with it.
-    if f"chat_prompt_{key}_prev_uuid" not in ctx.session_state:
-        ctx.session_state[f"chat_prompt_{key}_prev_uuid"] = None
-
     component_value = _component_func(
         name=name, placeholder=placeholder, default=None, key=key
     )
-    _prompt_singleton_key = key
 
     if (
         component_value
-        and component_value["uuid"] != ctx.session_state[f"chat_prompt_{key}_prev_uuid"]
+        and component_value["uuid"] != st.session_state[f"chat_prompt_{key}_prev_uuid"]
     ):
         # we have a new message
-        ctx.session_state[f"chat_prompt_{key}_prev_uuid"] = component_value["uuid"]
+        st.session_state[f"chat_prompt_{key}_prev_uuid"] = component_value["uuid"]
         images = []
         if component_value.get("images"):
             for image_str in component_value["images"]:
@@ -186,7 +171,6 @@ def prompt(
 
         return PromptReturn(
             message=component_value.get("message"),
-            # ['data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAALYAAAFOCAYAAAArRufEAAAKsWlDQ1BJQ0MgUHJvZmlsZQAASImVlwdUU+kSgP970xstEIqUUEMRpBNASggtFOnVRkgCBEKIgaAiNkRcwRVFRAQsoKsiCq4FkMWGBduiqNh1QURBXRcLNlTeDRyCu++8986bcybzZe7888/85/7nzAWAosuVSESwCgCZ4hxpZIAPPT4hkY4bBCSABlTgBGy5vGwJKzw8BCAyaf8uH24DSG5vWstz/fvz/yqq...
             images=images,
         )
     else:
