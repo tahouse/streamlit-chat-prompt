@@ -45,6 +45,17 @@ class ChatInput extends StreamlitComponentBase<State> {
 
     // Initialize handlePasteEvent
     this.handlePasteEvent = (e: ClipboardEvent) => {
+      const activeElement = document.activeElement as HTMLElement
+      const isTextField =
+        activeElement.tagName === "TEXTAREA" ||
+        (activeElement.tagName === "INPUT" &&
+          activeElement.getAttribute("type") === "text")
+
+      // If the active element is a text input or textarea, allow default paste behavior
+      if (isTextField) {
+        return
+      }
+
       e.preventDefault()
 
       const clipboardData = e.clipboardData
@@ -75,11 +86,8 @@ class ChatInput extends StreamlitComponentBase<State> {
 
       // Handle text separately if needed
       const text = clipboardData.getData("text")
-      if (text) {
-        const activeElement = document.activeElement
-        if (activeElement?.tagName === "TEXTAREA") {
-          return
-        }
+      if (text && !isTextField) {
+        // Handle text pasting outside of text inputs if needed
       }
     }
   }
