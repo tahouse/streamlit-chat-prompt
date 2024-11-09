@@ -1,6 +1,7 @@
 import os
 from types import FrameType
 
+from pydantic import BaseModel
 from streamlit.components.types.base_component_registry import BaseComponentRegistry
 import inspect
 import streamlit.components.v1 as components
@@ -64,10 +65,15 @@ else:
     _component_func = components.declare_component("prompt", path=build_dir)
 
 
-@dataclass
-class PromptReturn:
+class ImageData(BaseModel):
+    type: str
+    format: str
+    data: str
+
+
+class PromptReturn(BaseModel):
     message: Optional[str] = None
-    images: Optional[List[str]] = None
+    images: Optional[List[ImageData]] = None
 
 
 _prompt_singleton_key: Optional[str] = None
@@ -167,9 +173,21 @@ def prompt(
     ):
         # we have a new message
         ctx.session_state[f"chat_prompt_{key}_prev_uuid"] = component_value["uuid"]
+        images = []
+        if component_value.get("images"):
+            for image_str in component_value["images"]:
+                # Assuming the image_str is in the format: "data:image/png;base64,iVBORw0KGgo..."
+                parts = image_str.split(";")
+                image_type = parts[0].split(":")[1]
+                image_format, image_data = parts[1].split(",")
+                images.append(
+                    ImageData(type=image_type, format=image_format, data=image_data)
+                )
+
         return PromptReturn(
             message=component_value.get("message"),
-            images=component_value.get("images"),
+            # ['data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAALYAAAFOCAYAAAArRufEAAAKsWlDQ1BJQ0MgUHJvZmlsZQAASImVlwdUU+kSgP970xstEIqUUEMRpBNASggtFOnVRkgCBEKIgaAiNkRcwRVFRAQsoKsiCq4FkMWGBduiqNh1QURBXRcLNlTeDRyCu++8986bcybzZe7888/85/7nzAWAosuVSESwCgCZ4hxpZIAPPT4hkY4bBCSABlTgBGy5vGwJKzw8BCAyaf8uH24DSG5vWstz/fvz/yqq...
+            images=images,
         )
     else:
         # either nothing new, or we've already seen this value
