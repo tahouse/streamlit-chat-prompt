@@ -1,10 +1,10 @@
+import base64
+import io
+
 import streamlit as st
 import streamlit.components.v1 as components
-import base64
 from PIL import Image
-import io
 from prompt import prompt
-
 
 # # Example usage
 # styl = f"""
