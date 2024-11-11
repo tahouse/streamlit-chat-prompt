@@ -29,13 +29,38 @@ class ChatInput extends StreamlitComponentBase<State> {
 
   constructor(props: any) {
     super(props)
-    this.fileInputRef = React.createRef<HTMLInputElement>()
+
+    // Initialize state with default values if provided
+    const defaultValue = this.props.args["default"] || {
+      message: "",
+      images: [],
+    }
+
     this.state = {
       uuid: "",
-      message: "",
+      message: defaultValue.message || "",
       images: [],
       isFocused: false,
     }
+
+    // Handle default images if present
+    if (defaultValue.images && defaultValue.images.length > 0) {
+      // Convert base64 strings to Files
+      Promise.all(
+        defaultValue.images.map(async (dataUrl: string) => {
+          const response = await fetch(dataUrl)
+          const blob = await response.blob()
+          const fileName = `default-image-${Math.random()
+            .toString(36)
+            .slice(2)}.${blob.type.split("/")[1]}`
+          return new File([blob], fileName, { type: blob.type })
+        })
+      ).then((files) => {
+        this.setState({ images: files })
+      })
+    }
+
+    this.fileInputRef = React.createRef<HTMLInputElement>()
 
     // Bind methods to this
     this.handleSubmit = this.handleSubmit.bind(this)
