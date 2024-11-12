@@ -16,8 +16,7 @@ jobs:
       - name: Install pypa/build
         run: >-
           python3 -m
-          pip install
-          build
+          pip install ".[devel]"
           --user
       - name: Build a binary wheel and a source tarball
         run: python3 setup.py sdist bdist_wheel
