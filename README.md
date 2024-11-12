@@ -1,88 +1,165 @@
-# Streamlit Component Templates
 
-This repo contains templates and example code for creating [Streamlit](https://streamlit.io) Components.
+# Streamlit Chat Prompt
 
-For complete information, please see the [Streamlit Components documentation](https://docs.streamlit.io/en/latest/streamlit_components.html)!
+A Streamlit component that provides a modern chat-style prompt with image attachment and paste support. This component was built to mimic the style of [streamlit.chat_input](https://docs.streamlit.io/develop/api-reference/chat/st.chat_input) while expanding functionality with images. Future work may include addition of speech-to-text input.
 
-## Overview
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-A Streamlit Component is made out of a Python API and a frontend (built using any web tech you prefer). 
+**Author:** Tyler House ([@tahouse](https://github.com/tahouse))
 
-A Component can be used in any Streamlit app, can pass data between Python and frontend code, and and can optionally be distributed on [PyPI](https://pypi.org/) for the rest of the world to use.
+## Features
 
-* Create a component's API in a single line of Python:
+- 📝 Chat-style text input with multi-line support
+- 📎 Image attachment support via button or drag-and-drop
+- 📋 Paste image support (paste images directly from clipboard)
+- 🖼️ Image preview with ability to remove attached images
+- ⌨️ Submit with Enter key (Shift+Enter for new line)
+- 🎨 Automatic theme integration with Streamlit
+- 📱 Responsive design that works well on mobile and desktop
+- 🗜️ Automatic image compression/scaling to stay under size limits (customizable, default 5MB)
+- 📌 Optional pinned-to-bottom placement for main chat interface (one per app)
+- 🔄 Flexible positioning for use in dialogs, sidebars, or anywhere in the app flow
+- ✏️ Support for default/editable content - perfect for message editing workflows
+- 🔤 Smart focus management - automatically returns to text input after interactions
+
+## Installation
+
+```bash
+pip install streamlit-chat-prompt
+```
+
+## Usage
+
 ```python
-import streamlit.components.v1 as components
+import streamlit as st
+from streamlit_chat_prompt import prompt
 
-# Declare the component:
-my_component = components.declare_component("my_component", path="frontend/build")
+# Create a chat prompt
+response = prompt(
+    name="chat",  # Unique name for the prompt
+    key="chat",   # Unique key for the component instance
+    placeholder="Hi there! What should we talk about?",  # Optional placeholder text
+    main_bottom=True,  # Pin prompt to bottom of main area
+    max_image_size=5 * 1024 * 1024,  # Maximum image size (5MB default)
+    disabled=False,  # Optionally disable the prompt
+)
 
-# Use it:
-my_component(greeting="Hello", name="World")
+# Handle the response
+if response:
+    if response.message:
+        st.write(f"Message: {response.message}")
+    
+    if response.images:
+        for i, img in enumerate(response.images):
+            st.write(f"Image {i+1}: {img.type} ({img.format})")
 ```
-
-* Build the component's frontend out of HTML and JavaScript (or TypeScript, or ClojureScript, or whatever you fancy). React is supported, but not required:
-```typescript
-class MyComponent extends StreamlitComponentBase {
-    public render(): ReactNode {
-        // Access arguments from Python via `this.props.args`:
-        const greeting = this.props.args["greeting"]
-        const name = this.props.args["name"]
-        return <div>{greeting}, {name}!</div>
-    }
-}
-```
-
-## Quickstart
-
-* Ensure you have [Python 3.6+](https://www.python.org/downloads/), [Node.js](https://nodejs.org), and [npm](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) installed.
-* Clone this repo.
-* Create a new Python virtual environment for the template:
-```
-$ cd template
-$ python3 -m venv venv  # create venv
-$ . venv/bin/activate   # activate venv
-$ pip install streamlit # install streamlit
-```
-* Initialize and run the component template frontend:
-```
-$ cd template/my_component/frontend
-$ npm install    # Install npm dependencies
-$ npm run start  # Start the Webpack dev server
-```
-* From a separate terminal, run the template's Streamlit app:
-```
-$ cd template
-$ . venv/bin/activate  # activate the venv you created earlier
-$ pip install -e . # install template as editable package
-$ streamlit run my_component/example.py  # run the example
-```
-* If all goes well, you should see something like this:
-![Quickstart Success](quickstart.png)
-* Modify the frontend code at `my_component/frontend/src/MyComponent.tsx`.
-* Modify the Python code at `my_component/__init__.py`.
 
 ## Examples
 
-See the `template-reactless` directory for a template that does not use [React](https://reactjs.org/).
+Here are some usage patterns, or check out [rocktalk](https://github.com/tahouse/rocktalk) for a full working example.
 
-See the `examples` directory for examples on working with pandas DataFrames, integrating with third-party libraries, and more.
+1. Main Chat Interface ![Main Chat Interface](screenshots/main-chat.png)
 
-## Community-provided Templates
+    ```python
+    import streamlit as st
+    from streamlit_chat_prompt import prompt
 
-These templates are provided by the community. If you run into any issues, please file your issues against their repositories.
+    with st.sidebar:
+        st.markdown("test")
+        prompt_return = prompt(name="foo", key="better_chat_prompt", placeholder="Hi there!", main_bottom=True)
 
-- [streamlit-component-svelte-template](https://github.com/93degree/streamlit-component-svelte-template) - [@93degree](https://github.com/93degree)
-- [streamlit-component-vue-vite-template](https://github.com/gabrieltempass/streamlit-component-vue-vite-template) - [@gabrieltempass](https://github.com/gabrieltempass)
-- [streamlit-component-template-vue](https://github.com/andfanilo/streamlit-component-template-vue) - [@andfanilo](https://github.com/andfanilo)
-- [streamlit-component-template-react-hooks](https://github.com/whitphx/streamlit-component-template-react-hooks) - [@whitphx](https://github.com/whitphx)
+    st.write("Message:", prompt_return)
+    if prompt_return:
+        prompt_return.message
+        prompt_return.images
 
-## Contributing
+    ```
 
-If you want to contribute to this project, `./dev.py` script will be helpful for you. For details, run `./dev.py --help`.
+2. Dialog Usage and Starting From Existing Message ![Dialog Interface](screenshots/dialog.png)
 
-## More Information
+    ```python
+    import streamlit as st
+    from streamlit_chat_prompt import prompt
 
-* [Streamlit Components documentation](https://docs.streamlit.io/library/components)
-* [Streamlit Forums](https://discuss.streamlit.io/tag/custom-components)
-* [Streamlit Components gallery](https://www.streamlit.io/components)
+    @st.dialog("test dialog")
+    def test_dg(default_input="foobar"):
+        prompt(
+            "edit prompt",
+            key=f"edit_prompt_{id(self)}",
+            placeholder="Editing existing input",
+            main_bottom=False,
+            default=default_input,
+        )
+    
+        if st.button("✎", key=f"edit_{id(self)}"):
+            test_dg()
+
+    ```
+
+## Component API
+
+### prompt()
+
+Main function to create a chat prompt.
+
+Parameters:
+
+- `name` (str): Unique name for this prompt instance
+- `key` (str): Unique key for the component instance
+- `placeholder` (str, optional): Placeholder text shown in input field
+- `default` (Union[str, PromptReturn], optional): Default value for the prompt. Can include text and images using the `PromptReturn` object type.
+- `main_bottom` (bool, optional): Pin prompt to bottom of main area (default: True)
+- `max_image_size` (int, optional): Maximum image size in bytes (default: 5MB)
+- `disabled` (bool, optional): Disable the prompt (default: False)
+
+Returns:
+
+`Optional[PromptReturn]`: Object containing message and images if submitted, None otherwise
+
+### PromptReturn
+
+Object returned when user submits the prompt.
+
+Properties:
+
+- `message` (Optional[str]): Text message entered by user
+- `images` (Optional[List[ImageData]]): List of attached images
+
+### ImageData
+
+Object representing an attached image.
+
+Properties:
+
+- `type` (str): Image MIME type (e.g. "image/jpeg")
+- `format` (str): Image format (e.g. "base64")
+- `data` (str): Image data as base64 string
+
+## Development
+
+This repository is based on the [Streamlit Component template system](https://github.com/streamlit/component-template). If you want to modify or develop the component:
+
+1. Clone the repository
+2. Install development dependencies:
+
+    ```sh
+    pip install -e ".[devel]"
+    ```
+
+3. Start the frontend development server:
+
+    ```sh
+    cd streamlit_chat_prompt/frontend
+    npm install
+    npm run start
+    ```
+
+4. In a separate terminal, run your Streamlit app:
+
+    ```sh
+    streamlit run your_app.py
+    ```
+
+## License
+
+This project is licensed under the Apache License 2.0 - see the LICENSE file for details.

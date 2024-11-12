@@ -29,16 +29,15 @@ interface State {
     severity: "error" | "warning" | "info"
   }
 }
-
-const MAX_IMAGE_SIZE = 5 * 1024 * 1024 // 5MB in bytes
-
 class ChatInput extends StreamlitComponentBase<State> {
   private fileInputRef: React.RefObject<HTMLInputElement>
   private textFieldRef: React.RefObject<HTMLInputElement>
   private handlePasteEvent: (e: ClipboardEvent) => void
+  private maxImageSize: number
 
   constructor(props: any) {
     super(props)
+    this.maxImageSize = this.props.args?.max_image_size || 1024 * 1024 * 5
     this.state = {
       uuid: "",
       message: this.props.args?.default?.message || "",
@@ -155,7 +154,11 @@ class ChatInput extends StreamlitComponentBase<State> {
       } else {
         console.log(`Failed to process image: ${file.name}`)
         this.showNotification(
-          `Could not compress "${file.name}" to under 5MB. Try a smaller image.`,
+          `Could not compress "${file.name}" to under ${(
+            this.maxImageSize /
+            1024 /
+            1024
+          ).toFixed(1)} MB. Try a smaller image.`,
           "warning"
         )
       }
@@ -195,7 +198,7 @@ class ChatInput extends StreamlitComponentBase<State> {
       type: file.type,
     })
 
-    if (file.size <= MAX_IMAGE_SIZE) {
+    if (file.size <= this.maxImageSize) {
       console.log("Image already under size limit, returning original")
       return file
     }
@@ -223,7 +226,7 @@ class ChatInput extends StreamlitComponentBase<State> {
           size: `${(result.size / 1024 / 1024).toFixed(2)}MB`,
         })
 
-        if (result.size <= MAX_IMAGE_SIZE) {
+        if (result.size <= this.maxImageSize) {
           console.log("Successfully compressed without scaling")
           return result
         }
@@ -244,7 +247,7 @@ class ChatInput extends StreamlitComponentBase<State> {
           size: `${(result.size / 1024 / 1024).toFixed(2)}MB`,
         })
 
-        if (result.size <= MAX_IMAGE_SIZE) {
+        if (result.size <= this.maxImageSize) {
           console.log("Successfully compressed with scaling")
           return result
         }

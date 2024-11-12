@@ -8,9 +8,9 @@ long_description = (this_directory / "README.md").read_text()
 setuptools.setup(
     name="streamlit-chat-prompt",
     version="0.0.1",
-    author="John Smith",
-    author_email="john@example.com",
-    description="Streamlit component that allows you to do X",
+    author="Tyler House",
+    author_email="26489166+tahouse@users.noreply.github.com",
+    description="Streamlit component that allows you to create a chat prompt with paste and image attachment support",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="",
@@ -32,6 +32,7 @@ setuptools.setup(
             "requests==2.31.0",
             "pytest-playwright-snapshot==1.0",
             "pytest-rerunfailures==12.0",
+            "twine~=5.1",
         ]
     },
 )

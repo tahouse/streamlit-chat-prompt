@@ -1,14 +1,10 @@
+import logging
 import os
 from typing import List, Optional, Union
 
 import streamlit as st
 import streamlit.components.v1 as components
 from pydantic import BaseModel
-import math
-from PIL import Image
-import io
-import base64
-import logging
 
 # Create a _RELEASE constant. We'll set this to False while we're developing
 # the component, and True when we're ready to package and distribute it.
@@ -41,7 +37,7 @@ if not _RELEASE:
         # We give the component a simple, descriptive name ("my_component"
         # does not fit this bill, so please choose something better for your
         # own component :)
-        "prompt",
+        "streamlit_chat_prompt",
         # Pass `url` here to tell Streamlit that the component will be served
         # by the local dev server that you run via `npm run start`.
         # (This is useful while your component is in development.)
@@ -53,7 +49,9 @@ else:
     # build directory:
     parent_dir = os.path.dirname(os.path.abspath(__file__))
     build_dir = os.path.join(parent_dir, "frontend/build")
-    _component_func = components.declare_component("prompt", path=build_dir)
+    _component_func = components.declare_component(
+        "streamlit_chat_prompt", path=build_dir
+    )
 
 
 class ImageData(BaseModel):
@@ -179,6 +177,7 @@ def prompt(
         default=default_value,
         key=key,
         disabled=disabled,
+        max_image_size=max_image_size,
     )
 
     if (

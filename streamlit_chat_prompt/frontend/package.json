@@ -1,5 +1,5 @@
 {
-  "name": "prompt",
+  "name": "streamlit_chat_prompt",
   "version": "0.1.0",
   "private": true,
   "dependencies": {
@@ -7,8 +7,8 @@
     "@emotion/styled": "^11.13.0",
     "@mui/icons-material": "^6.1.6",
     "@mui/material": "^6.1.6",
-    "react": "^16.13.1",
-    "react-dom": "^16.13.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "streamlit-component-lib": "^2.0.0"
   },
   "scripts": {
@@ -35,8 +35,8 @@
   "homepage": ".",
   "devDependencies": {
     "@types/node": "^12.0.0",
-    "@types/react": "^16.9.0",
-    "@types/react-dom": "^16.9.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
     "react-scripts": "^5.0.1",
     "typescript": "^4.2.0"
   }
