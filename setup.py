@@ -7,13 +7,13 @@ long_description = (this_directory / "README.md").read_text()
 
 setuptools.setup(
     name="streamlit-chat-prompt",
-    version="0.0.1",
+    version="0.1.1",
     author="Tyler House",
     author_email="26489166+tahouse@users.noreply.github.com",
     description="Streamlit component that allows you to create a chat prompt with paste and image attachment support",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="",
+    url="https://github.com/tahouse/streamlit-chat-prompt",
     packages=setuptools.find_packages(),
     include_package_data=True,
     classifiers=[],
@@ -23,6 +23,7 @@ setuptools.setup(
         # If your component has other Python dependencies, list
         # them here.
         "streamlit >= 0.63",
+        "pydantic >= 2",
     ],
     extras_require={
         "devel": [
