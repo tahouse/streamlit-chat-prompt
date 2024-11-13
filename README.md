@@ -1,11 +1,15 @@
 
 # Streamlit Chat Prompt
 
+[![PyPI](https://img.shields.io/pypi/v/streamlit-chat-prompt)](https://pypi.org/project/streamlit-chat-prompt/)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/streamlit-chat-prompt)](https://pypi.org/project/streamlit-chat-prompt/)
+![GitHub](https://img.shields.io/github/license/tahouse/streamlit-chat-prompt)
+
 A Streamlit component that provides a modern chat-style prompt with image attachment and paste support. This component was built to mimic the style of [streamlit.chat_input](https://docs.streamlit.io/develop/api-reference/chat/st.chat_input) while expanding functionality with images. Future work may include addition of speech-to-text input.
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-
 **Author:** Tyler House ([@tahouse](https://github.com/tahouse))
+
+![Demo](https://raw.githubusercontent.com/tahouse/streamlit-chat-prompt/main/docs/demo.gif")
 
 ## Features
 
@@ -58,41 +62,73 @@ if response:
 
 Here are some usage patterns, or check out [rocktalk](https://github.com/tahouse/rocktalk) for a full working example.
 
-1. Main Chat Interface ![Main Chat Interface](screenshots/main-chat.png)
+1. Main Chat Interface ![Main Chat Interface](https://raw.githubusercontent.com/tahouse/streamlit-chat-prompt/main/docs/main-chat.png)
 
     ```python
+    import base64
+    from io import BytesIO
     import streamlit as st
-    from streamlit_chat_prompt import prompt
+    from streamlit_chat_prompt import PromptReturn, prompt, ImageData
+    from PIL import Image
 
-    with st.sidebar:
-        st.markdown("test")
-        prompt_return = prompt(name="foo", key="better_chat_prompt", placeholder="Hi there!", main_bottom=True)
 
-    st.write("Message:", prompt_return)
+    st.chat_message("assistant").write("Hi there! What should we chat about?")
+
+    prompt_return: PromptReturn | None = prompt(
+        name="foo",
+        key="chat_prompt",
+        placeholder="Hi there! What should we chat about?",
+        main_bottom=True,
+    )
+
     if prompt_return:
-        prompt_return.message
-        prompt_return.images
+        with st.chat_message("user"):
+            st.write(prompt_return.message)
+            if prompt_return.images:
+                for image in prompt_return.images:
+                    st.divider()
+                    image_data: bytes = base64.b64decode(image.data)
+                    st.markdown("Ussng `st.image`")
+                    st.image(Image.open(BytesIO(image_data)))
+
+                    # or use markdown
+                    st.divider()
+                    st.markdown("Using `st.markdown`")
+                    st.markdown(f"![Hello World](data:image/png;base64,{image.data})")
 
     ```
 
-2. Dialog Usage and Starting From Existing Message ![Dialog Interface](screenshots/dialog.png)
+2. Dialog Usage and Starting From Existing Message ![Dialog Interface](https://raw.githubusercontent.com/tahouse/streamlit-chat-prompt/main/docs/dialog.png)
 
     ```python
+    import base64
+    from io import BytesIO
     import streamlit as st
-    from streamlit_chat_prompt import prompt
-
-    @st.dialog("test dialog")
-    def test_dg(default_input="foobar"):
-        prompt(
-            "edit prompt",
-            key=f"edit_prompt_{id(self)}",
-            placeholder="Editing existing input",
-            main_bottom=False,
-            default=default_input,
-        )
+    from streamlit_chat_prompt import PromptReturn, prompt, ImageData
+    from PIL import Image
     
-        if st.button("✎", key=f"edit_{id(self)}"):
+    with st.sidebar:
+        st.header("Sidebar")
+
+        if st.button("Dialog Prompt", key=f"dialog_prompt_button"):
             test_dg()
+
+        if st.button(
+            "Dialog Prompt with Default Value", key=f"dialog_prompt_with_default_button"
+        ):
+            with open("example_images/vangogh.png", "rb") as f:
+                image_data = f.read()
+                image = Image.open(BytesIO(image_data))
+                base64_image = base64.b64encode(image_data).decode("utf-8")
+                test_dg(
+                    default_input=PromptReturn(
+                        message="This is a test message with an image",
+                        images=[
+                            ImageData(data=base64_image, type="image/png", format="base64")
+                        ],
+                    ),
+                    key="dialog_with_default",
+                )
 
     ```
 
