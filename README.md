@@ -9,7 +9,7 @@ A Streamlit component that provides a modern chat-style prompt with image attach
 
 **Author:** Tyler House ([@tahouse](https://github.com/tahouse))
 
-![Demo](https://raw.githubusercontent.com/tahouse/streamlit-chat-prompt/main/docs/demo.gif")
+![Demo](https://raw.githubusercontent.com/tahouse/streamlit-chat-prompt/main/docs/demo.gif)
 
 ## Features
 

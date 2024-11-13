@@ -7,7 +7,7 @@ long_description = (this_directory / "README.md").read_text()
 
 setuptools.setup(
     name="streamlit-chat-prompt",
-    version="0.1.4",
+    version="0.1.5",
     author="Tyler House",
     author_email="26489166+tahouse@users.noreply.github.com",
     description="Streamlit component that allows you to create a chat prompt with paste and image attachment support",
