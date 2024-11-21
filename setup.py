@@ -14,9 +14,25 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/tahouse/streamlit-chat-prompt",
+     project_urls={
+            "Documentation": "https://github.com/tahouse/streamlit-chat-prompt/blob/main/README.md",
+            "Issue Tracker": "https://github.com/tahouse/streamlit-chat-prompt/issues",
+        },
     packages=setuptools.find_packages(),
     include_package_data=True,
-    classifiers=[],
+    license="Apache-2.0",
+    keywords="streamlit, component, chat, prompt, paste, image, clipboard",
+    classifiers=[
+        "Programming Language :: Python :: 3",
+        "License :: OSI Approved :: Apache Software License",
+        "Operating System :: OS Independent",
+        "Development Status :: 5 - Production/Stable",
+        "Environment :: Web Environment",
+        "Intended Audience :: Developers",
+        "Topic :: Desktop Environment",
+        "Topic :: Multimedia :: Graphics",
+        "Topic :: Software Development :: User Interfaces"
+    ],
     python_requires=">=3.7",
     install_requires=[
         # By definition, a Custom Component depends on Streamlit.
