@@ -50,8 +50,8 @@ response = prompt(
 
 # Handle the response
 if response:
-    if response.message:
-        st.write(f"Message: {response.message}")
+    if response.text:
+        st.write(f"Message: {response.text}")
     
     if response.images:
         for i, img in enumerate(response.images):
@@ -83,53 +83,40 @@ Here are some usage patterns, or check out [rocktalk](https://github.com/tahouse
 
     if prompt_return:
         with st.chat_message("user"):
-            st.write(prompt_return.message)
+            st.write(prompt_return.text)
             if prompt_return.images:
                 for image in prompt_return.images:
                     st.divider()
                     image_data: bytes = base64.b64decode(image.data)
-                    st.markdown("Ussng `st.image`")
+                    st.markdown("Using `st.image`")
                     st.image(Image.open(BytesIO(image_data)))
 
                     # or use markdown
                     st.divider()
                     st.markdown("Using `st.markdown`")
-                    st.markdown(f"![Hello World](data:image/png;base64,{image.data})")
+                    st.markdown(f"![Image example](data:image/png;base64,{image.data})")
 
     ```
 
 2. Dialog Usage and Starting From Existing Message ![Dialog Interface](https://raw.githubusercontent.com/tahouse/streamlit-chat-prompt/main/docs/dialog.png)
 
     ```python
-    import base64
-    from io import BytesIO
-    import streamlit as st
-    from streamlit_chat_prompt import PromptReturn, prompt, ImageData
-    from PIL import Image
-    
-    with st.sidebar:
-        st.header("Sidebar")
-
-        if st.button("Dialog Prompt", key=f"dialog_prompt_button"):
-            test_dg()
-
-        if st.button(
-            "Dialog Prompt with Default Value", key=f"dialog_prompt_with_default_button"
-        ):
-            with open("example_images/vangogh.png", "rb") as f:
-                image_data = f.read()
-                image = Image.open(BytesIO(image_data))
-                base64_image = base64.b64encode(image_data).decode("utf-8")
-                test_dg(
-                    default_input=PromptReturn(
-                        message="This is a test message with an image",
-                        images=[
-                            ImageData(data=base64_image, type="image/png", format="base64")
-                        ],
-                    ),
-                    key="dialog_with_default",
-                )
-
+    if st.button(
+        "Dialog Prompt with Default Value", key=f"dialog_prompt_with_default_button"
+    ):
+        with open("example_images/vangogh.png", "rb") as f:
+            image_data = f.read()
+            image = Image.open(BytesIO(image_data))
+            base64_image = base64.b64encode(image_data).decode("utf-8")
+            test_dg(
+                default_input=PromptReturn(
+                    text="This is a test message with an image",
+                    images=[
+                        ImageData(data=base64_image, type="image/png", format="base64")
+                    ],
+                ),
+                key="dialog_with_default",
+            )
     ```
 
 ## Component API
@@ -158,7 +145,7 @@ Object returned when user submits the prompt.
 
 Properties:
 
-- `message` (Optional[str]): Text message entered by user
+- `text` (Optional[str]): Text message entered by user
 - `images` (Optional[List[ImageData]]): List of attached images
 
 ### ImageData
