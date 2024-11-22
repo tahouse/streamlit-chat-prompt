@@ -19,7 +19,7 @@ import CloseIcon from "@mui/icons-material/Close"
 
 interface State {
   uuid: string
-  message: string
+  text: string
   images: File[]
   isFocused: boolean
   disabled: boolean
@@ -40,7 +40,7 @@ class ChatInput extends StreamlitComponentBase<State> {
     this.maxImageSize = this.props.args?.max_image_size || 1024 * 1024 * 5
     this.state = {
       uuid: "",
-      message: this.props.args?.default?.message || "",
+      text: this.props.args?.default?.text || "",
       images: [],
       isFocused: false,
       disabled: this.props.args?.disabled || false,
@@ -53,7 +53,7 @@ class ChatInput extends StreamlitComponentBase<State> {
 
     // Initialize state with default values if provided
     const defaultValue = this.props.args["default"] || {
-      message: "",
+      text: "",
       images: [],
     }
 
@@ -143,14 +143,22 @@ class ChatInput extends StreamlitComponentBase<State> {
       console.log(`Processing file: ${file.name}`)
       const processedImage = await this.processImage(file)
       if (processedImage) {
-        console.log("Successfully processed image:", {
-          name: file.name,
-          originalSize: `${(file.size / 1024 / 1024).toFixed(2)}MB`,
-          processedSize: `${(processedImage.size / 1024 / 1024).toFixed(2)}MB`,
-        })
-        this.setState((prevState) => ({
-          images: [...prevState.images, processedImage],
-        }))
+        const sizeCheck = await this.checkFileSize(processedImage)
+        if (sizeCheck.isValid) {
+          console.log("Successfully processed image:", {
+            name: file.name,
+            originalSize: `${(file.size / 1024 / 1024).toFixed(2)}MB`,
+            finalFileSize: `${(sizeCheck.fileSize / 1024 / 1024).toFixed(2)}MB`,
+            finalBase64Size: `${(sizeCheck.base64Size / 1024 / 1024).toFixed(
+              2
+            )}MB`,
+          })
+          this.setState((prevState) => ({
+            images: [...prevState.images, processedImage],
+          }))
+        } else {
+          throw new Error("Processed image still exceeds size limits")
+        }
       } else {
         console.log(`Failed to process image: ${file.name}`)
         this.showNotification(
@@ -192,13 +200,48 @@ class ChatInput extends StreamlitComponentBase<State> {
     this.focusTextField()
   }
 
+  private async checkFileSize(file: File): Promise<{
+    isValid: boolean
+    fileSize: number
+    base64Size: number
+  }> {
+    // Get base64 size
+    const base64Size = await new Promise<number>((resolve) => {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        const base64String = reader.result as string
+        resolve(base64String.length)
+      }
+      reader.readAsDataURL(file)
+    })
+
+    const fileSize = file.size
+    const isValid =
+      base64Size <= this.maxImageSize && fileSize <= this.maxImageSize
+
+    console.log("File size check:", {
+      fileName: file.name,
+      fileSize: `${(fileSize / 1024 / 1024).toFixed(2)}MB`,
+      base64Size: `${(base64Size / 1024 / 1024).toFixed(2)}MB`,
+      maxSize: `${(this.maxImageSize / 1024 / 1024).toFixed(2)}MB`,
+      isValid,
+    })
+
+    return {
+      isValid,
+      fileSize,
+      base64Size,
+    }
+  }
   async processImage(file: File): Promise<File | null> {
     console.log(`Processing image: ${file.name}`, {
       originalSize: `${(file.size / 1024 / 1024).toFixed(2)}MB`,
       type: file.type,
     })
 
-    if (file.size <= this.maxImageSize) {
+    // Check if the original file is already small enough
+    const initialSizeCheck = await this.checkFileSize(file)
+    if (initialSizeCheck.isValid) {
       console.log("Image already under size limit, returning original")
       return file
     }
@@ -221,12 +264,8 @@ class ChatInput extends StreamlitComponentBase<State> {
       for (const quality of [1.0, 0.9, 0.8, 0.7]) {
         console.log(`Trying compression only with quality=${quality}`)
         const result = await this.compressImage(img, quality, 1.0)
-        console.log("Compression result:", {
-          quality,
-          size: `${(result.size / 1024 / 1024).toFixed(2)}MB`,
-        })
-
-        if (result.size <= this.maxImageSize) {
+        const sizeCheck = await this.checkFileSize(result)
+        if (sizeCheck.isValid) {
           console.log("Successfully compressed without scaling")
           return result
         }
@@ -239,15 +278,8 @@ class ChatInput extends StreamlitComponentBase<State> {
           `Trying scaling with scale=${scale.toFixed(2)} and quality=0.8`
         )
         const result = await this.compressImage(img, 0.8, scale)
-        console.log("Scaling result:", {
-          scale: scale.toFixed(2),
-          dimensions: `${Math.round(img.width * scale)}x${Math.round(
-            img.height * scale
-          )}`,
-          size: `${(result.size / 1024 / 1024).toFixed(2)}MB`,
-        })
-
-        if (result.size <= this.maxImageSize) {
+        const sizeCheck = await this.checkFileSize(result)
+        if (sizeCheck.isValid) {
           console.log("Successfully compressed with scaling")
           return result
         }
@@ -327,7 +359,7 @@ class ChatInput extends StreamlitComponentBase<State> {
   handleSubmit() {
     if (this.state.disabled) return
 
-    if (!this.state.message && this.state.images.length === 0) return
+    if (!this.state.text && this.state.images.length === 0) return
 
     const imagePromises = this.state.images.map((image) => {
       return new Promise((resolve) => {
@@ -340,12 +372,12 @@ class ChatInput extends StreamlitComponentBase<State> {
     Promise.all(imagePromises).then((imageData) => {
       Streamlit.setComponentValue({
         uuid: crypto.randomUUID(),
-        message: this.state.message,
+        text: this.state.text,
         images: imageData,
       })
       this.setState({
         uuid: "",
-        message: "",
+        text: "",
         images: [],
       })
     })
@@ -463,8 +495,8 @@ class ChatInput extends StreamlitComponentBase<State> {
                 maxRows={11}
                 fullWidth
                 disabled={disabled}
-                value={this.state.message}
-                onChange={(e) => this.setState({ message: e.target.value })}
+                value={this.state.text}
+                onChange={(e) => this.setState({ text: e.target.value })}
                 onKeyDown={this.handleKeyDown}
                 placeholder={this.props.args["placeholder"]}
                 variant="standard"

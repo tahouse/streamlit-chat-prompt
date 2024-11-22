@@ -1,26 +1,31 @@
 import base64
+from dataclasses import dataclass
 from io import BytesIO
-import time
-from typing import Any, Dict, List
+from typing import List
+
 import streamlit as st
-from streamlit_chat_prompt import PromptReturn, prompt, ImageData
 from PIL import Image
 
+from streamlit_chat_prompt import ImageData, PromptReturn, prompt
 
 st.title("streamlit-chat-prompt")
 
+
+@dataclass
+class ChatMessage:
+    role: str
+    content: str | PromptReturn
+
+
 if "messages" not in st.session_state:
-    messages: List[Dict[str, str | PromptReturn]] = [
-        {"role": "assistant", "content": "Hi there! What should we chat about?"}
+    messages: List[ChatMessage] = [
+        ChatMessage(role="assistant", content="Hi there! What should we chat about?")
     ]
     st.session_state.messages = messages
 
-if "new_default_input" not in st.session_state:
-    st.session_state.new_default_input = None
-
 
 @st.dialog("Prompt in dialog")
-def test_dg(default_input: str | PromptReturn | None = None, key="default_dialog_key"):
+def dialog(default_input: str | PromptReturn | None = None, key="default_dialog_key"):
     dialog_input = prompt(
         "dialog_prompt",
         key=key,
@@ -30,16 +35,13 @@ def test_dg(default_input: str | PromptReturn | None = None, key="default_dialog
     )
     if dialog_input:
         st.write(dialog_input)
-        st.session_state.new_default_input = dialog_input
-        time.sleep(2)
-        st.rerun()
 
 
 with st.sidebar:
     st.header("Sidebar")
 
     if st.button("Dialog Prompt", key=f"dialog_prompt_button"):
-        test_dg()
+        dialog()
 
     if st.button(
         "Dialog Prompt with Default Value", key=f"dialog_prompt_with_default_button"
@@ -48,9 +50,9 @@ with st.sidebar:
             image_data = f.read()
             image = Image.open(BytesIO(image_data))
             base64_image = base64.b64encode(image_data).decode("utf-8")
-            test_dg(
+            dialog(
                 default_input=PromptReturn(
-                    message="This is a test message with an image",
+                    text="This is a test message with an image",
                     images=[
                         ImageData(data=base64_image, type="image/png", format="base64")
                     ],
@@ -58,39 +60,39 @@ with st.sidebar:
                 key="dialog_with_default",
             )
 
-for message in st.session_state.messages:
-    message: Dict[str, str | PromptReturn]
-    role: str = message["role"]
-    content: str | PromptReturn = message["content"]
+for chat_message in st.session_state.messages:
+    chat_message: ChatMessage
 
-    with st.chat_message(role):
-        if isinstance(content, PromptReturn):
-            st.markdown(content.message)
-            if content.images:
-                for image in content.images:
-                    st.divider()
-                    image_data: bytes = base64.b64decode(image.data)
-                    st.markdown("Ussng `st.image`")
-                    st.image(Image.open(BytesIO(image_data)))
-
-                    # or use markdown
+    with st.chat_message(chat_message.role):
+        if isinstance(chat_message.content, PromptReturn):
+            st.markdown(chat_message.content.text)
+            if chat_message.content.images:
+                for image_data in chat_message.content.images:
                     st.divider()
                     st.markdown("Using `st.markdown`")
-                    st.markdown(f"![Hello World](data:image/png;base64, {image.data})")
+                    st.markdown(
+                        f"![Image example](data:{image_data.type};{image_data.format},{image_data.data})"
+                    )
+
+                    # or use PIL
+                    st.divider()
+                    st.markdown("Using `st.image`")
+                    image = Image.open(BytesIO(base64.b64decode(image_data.data)))
+                    st.image(image)
+
         else:
-            st.markdown(content)
+            st.markdown(chat_message.content)
 
 prompt_return: PromptReturn | None = prompt(
     name="foo",
     key="chat_prompt",
     placeholder="Hi there! What should we chat about?",
     main_bottom=True,
-    default=st.session_state.new_default_input,
 )
 
 if prompt_return:
-    st.session_state.messages.append({"role": "user", "content": prompt_return})
+    st.session_state.messages.append(ChatMessage(role="user", content=prompt_return))
     st.session_state.messages.append(
-        {"role": "assistant", "content": f"Echo: {prompt_return.message}"}
+        ChatMessage(role="assistant", content=f"Echo: {prompt_return.text}")
     )
     st.rerun()

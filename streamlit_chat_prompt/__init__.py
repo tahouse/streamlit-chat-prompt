@@ -61,7 +61,7 @@ class ImageData(BaseModel):
 
 
 class PromptReturn(BaseModel):
-    message: Optional[str] = None
+    text: Optional[str] = None
     images: Optional[List[ImageData]] = None
 
 
@@ -98,7 +98,8 @@ def prompt(
     """
     # Convert string default to PromptReturn if needed
     if isinstance(default, str):
-        default = PromptReturn(message=default)
+        default = PromptReturn(text=default)
+
 
     if f"chat_prompt_{key}_prev_uuid" not in st.session_state:
         st.session_state[f"chat_prompt_{key}_prev_uuid"] = None
@@ -112,7 +113,7 @@ def prompt(
                 f"data:{img.type};{img.format},{img.data}" for img in default.images
             ]
         default_value = {
-            "message": default.message or "",
+            "text": default.text or "",
             "images": images,
             "uuid": None,  # No UUID for default value
         }
@@ -184,7 +185,7 @@ def prompt(
         component_value
         and component_value["uuid"] != st.session_state[f"chat_prompt_{key}_prev_uuid"]
     ):
-        # we have a new message
+        # we have a new prompt return
         st.session_state[f"chat_prompt_{key}_prev_uuid"] = component_value["uuid"]
         images = []
         # Process any images
@@ -199,11 +200,11 @@ def prompt(
                 )
                 # print(len(image_data) / 1024 / 1024)
 
-        if not images and not component_value.get("message"):
+        if not images and not component_value.get("text"):
             return None
 
         return PromptReturn(
-            message=component_value.get("message"),
+            text=component_value.get("text"),
             images=images,
         )
     else:

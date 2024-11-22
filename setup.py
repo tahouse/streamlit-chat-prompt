@@ -7,17 +7,17 @@ long_description = (this_directory / "README.md").read_text()
 
 setuptools.setup(
     name="streamlit-chat-prompt",
-    version="0.1.7",
+    version="0.2.0",
     author="Tyler House",
     author_email="26489166+tahouse@users.noreply.github.com",
     description="Streamlit component that allows you to create a chat prompt with paste and image attachment support",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/tahouse/streamlit-chat-prompt",
-     project_urls={
-            "Documentation": "https://github.com/tahouse/streamlit-chat-prompt/blob/main/README.md",
-            "Issue Tracker": "https://github.com/tahouse/streamlit-chat-prompt/issues",
-        },
+    project_urls={
+        "Documentation": "https://github.com/tahouse/streamlit-chat-prompt/blob/main/README.md",
+        "Issue Tracker": "https://github.com/tahouse/streamlit-chat-prompt/issues",
+    },
     packages=setuptools.find_packages(),
     include_package_data=True,
     license="Apache-2.0",
@@ -31,7 +31,7 @@ setuptools.setup(
         "Intended Audience :: Developers",
         "Topic :: Desktop Environment",
         "Topic :: Multimedia :: Graphics",
-        "Topic :: Software Development :: User Interfaces"
+        "Topic :: Software Development :: User Interfaces",
     ],
     python_requires=">=3.7",
     install_requires=[
