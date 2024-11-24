@@ -1,49 +1,103 @@
+import { AttachFile, Send } from "@mui/icons-material"
+import CloseIcon from "@mui/icons-material/Close"
+import {
+  Alert,
+  Box,
+  IconButton,
+  ImageList,
+  ImageListItem,
+  Paper,
+  Snackbar,
+  TextField,
+} from "@mui/material"
 import React from "react"
 import {
   Streamlit,
   StreamlitComponentBase,
   withStreamlitConnection,
 } from "streamlit-component-lib"
-import {
-  Box,
-  TextField,
-  IconButton,
-  Paper,
-  ImageList,
-  ImageListItem,
-  Snackbar,
-  Alert,
-} from "@mui/material"
-import { AttachFile, Send } from "@mui/icons-material"
-import CloseIcon from "@mui/icons-material/Close"
 
+class PromptData {
+  text: string
+  images: string[]
+
+  constructor(text: string = "", images: string[] = []) {
+    this.text = text
+    this.images = images
+  }
+
+  static fromProps(props: any): PromptData {
+    if (!props || !props.args || !props.args.default) {
+      return new PromptData()
+    }
+
+    const defaultData = props.args.default
+    return new PromptData(
+      defaultData.text || "",
+      Array.isArray(defaultData.images) ? defaultData.images : []
+    )
+  }
+
+  static empty(): PromptData {
+    return new PromptData()
+  }
+
+  isEmpty(): boolean {
+    return !this.text && this.images.length === 0
+  }
+
+  clone(): PromptData {
+    return new PromptData(this.text, [...this.images])
+  }
+}
+
+interface Props {
+  default?: {
+    text?: string
+    images?: string[]
+  }
+  max_image_size?: number
+  placeholder?: string
+  disabled?: boolean
+}
 interface State {
   uuid: string
   text: string
   images: File[]
   isFocused: boolean
   disabled: boolean
+  default: PromptData
+  userHasInteracted: boolean
+  lastAppliedDefault: PromptData | null
   notification: {
     open: boolean
     message: string
     severity: "error" | "warning" | "info"
   }
 }
-class ChatInput extends StreamlitComponentBase<State> {
+
+class ChatInput extends StreamlitComponentBase<State, Props> {
   private fileInputRef: React.RefObject<HTMLInputElement>
   private textFieldRef: React.RefObject<HTMLInputElement>
   private handlePasteEvent: (e: ClipboardEvent) => void
   private maxImageSize: number
 
-  constructor(props: any) {
-    super(props)
+  constructor(props: Props) {
+    super(props as any)
+    console.log("Initial construction")
+    console.log(this.props)
     this.maxImageSize = this.props.args?.max_image_size || 1024 * 1024 * 5
+
+    const defaultValue = PromptData.fromProps(props)
     this.state = {
       uuid: "",
-      text: this.props.args?.default?.text || "",
+      text: defaultValue.text,
       images: [],
       isFocused: false,
       disabled: this.props.args?.disabled || false,
+      default: defaultValue,
+      userHasInteracted: false,
+      lastAppliedDefault: null,
       notification: {
         open: false,
         message: "",
@@ -51,28 +105,8 @@ class ChatInput extends StreamlitComponentBase<State> {
       },
     }
 
-    // Initialize state with default values if provided
-    const defaultValue = this.props.args["default"] || {
-      text: "",
-      images: [],
-    }
-
     // Handle default images if present
-    if (defaultValue.images && defaultValue.images.length > 0) {
-      // Convert base64 strings to Files
-      Promise.all(
-        defaultValue.images.map(async (dataUrl: string) => {
-          const response = await fetch(dataUrl)
-          const blob = await response.blob()
-          const fileName = `default-image-${Math.random()
-            .toString(36)
-            .slice(2)}.${blob.type.split("/")[1]}`
-          return new File([blob], fileName, { type: blob.type })
-        })
-      ).then((files) => {
-        Promise.all(files.map((file) => this.processAndAddImage(file)))
-      })
-    }
+    this.setImagesFromDefault(defaultValue)
 
     this.fileInputRef = React.createRef<HTMLInputElement>()
     this.textFieldRef = React.createRef<HTMLInputElement>()
@@ -82,6 +116,7 @@ class ChatInput extends StreamlitComponentBase<State> {
     this.handleKeyDown = this.handleKeyDown.bind(this)
     this.handleFileUpload = this.handleFileUpload.bind(this)
     this.removeImage = this.removeImage.bind(this)
+    this.handleTextChange = this.handleTextChange.bind(this)
 
     // Handle paste events
     this.handlePasteEvent = async (e: ClipboardEvent) => {
@@ -89,6 +124,8 @@ class ChatInput extends StreamlitComponentBase<State> {
 
       const clipboardData = e.clipboardData
       if (!clipboardData) return
+
+      this.setState({ userHasInteracted: true })
 
       // Handle files and images from clipboard
       const files = clipboardData.files
@@ -115,10 +152,34 @@ class ChatInput extends StreamlitComponentBase<State> {
     }
   }
 
+  // Helper method to compare arrays
+  private arraysEqual(a: string[], b: string[]): boolean {
+    return a.length === b.length && a.every((val, index) => val === b[index])
+  }
+
+  private setImagesFromDefault(defaultValue: PromptData) {
+    if (defaultValue.images && defaultValue.images.length > 0) {
+      // Convert base64 strings to Files
+      Promise.all(
+        defaultValue.images.map(async (dataUrl: string) => {
+          const response = await fetch(dataUrl)
+          const blob = await response.blob()
+          const fileName = `default-image-${Math.random()
+            .toString(36)
+            .slice(2)}.${blob.type.split("/")[1]}`
+          return new File([blob], fileName, { type: blob.type })
+        })
+      ).then((files) => {
+        Promise.all(files.map((file) => this.processAndAddImage(file)))
+      })
+    }
+  }
+
   componentDidMount() {
     document.addEventListener("paste", this.handlePasteEvent)
     Streamlit.setFrameHeight()
     setTimeout(() => Streamlit.setFrameHeight(), 100)
+    setTimeout(() => Streamlit.setFrameHeight(), 500)
   }
 
   componentWillUnmount() {
@@ -379,6 +440,7 @@ class ChatInput extends StreamlitComponentBase<State> {
         uuid: "",
         text: "",
         images: [],
+        // userHasInteracted: false,
       })
     })
     this.focusTextField()
@@ -406,17 +468,25 @@ class ChatInput extends StreamlitComponentBase<State> {
 
   render() {
     const { theme } = this.props
+    console.log("Prompt render")
+    console.log("props")
+    console.log(this.props)
+    console.log("state")
+    console.log(this.state)
     const disabled = this.state.disabled || false
+    this.maxImageSize = this.props.args?.max_image_size || 1024 * 1024 * 5
 
     return (
       <>
         <Paper
-          elevation={3}
+          elevation={0}
           sx={{
             display: "flex",
             flexDirection: "column",
             gap: 1,
             maxHeight: "400px",
+            // minHeight: "100px",
+            // width: "100%",
             backgroundColor: theme?.backgroundColor,
             color: theme?.textColor,
             fontFamily: theme?.font,
@@ -424,21 +494,36 @@ class ChatInput extends StreamlitComponentBase<State> {
             // opacity: disabled ? 0.6 : 1, // Use consistent opacity for disabled state
             transition: "opacity 0.2s ease", // Smooth transition when disabled state changes
             cursor: disabled ? "not-allowed" : "default",
+            // "& > *": { width: "100%" }, // Ensure children take full width
+
             "& *": {
               // Apply to all children
               cursor: disabled ? "not-allowed" : "inherit",
             },
           }}
         >
+          {/* <Box
+            sx={{
+              // flexShrink: 0, // Prevent shrinking
+              height: this.state.images.length > 0 ? "100px" : "0px",
+              overflow: "hidden",
+              transition: "height 0.2s ease", // Smooth height transition
+            }}
+          > */}
           {this.state.images.length > 0 && (
             <ImageList sx={{ maxHeight: 100, m: 0 }} cols={4} rowHeight={80}>
-              {this.state.images.map((image, index) => (
+              {this.state.images.map((image, index) => {
+                const objectUrl = URL.createObjectURL(image)
+                return (
                 <ImageListItem key={index} sx={{ position: "relative" }}>
                   <img
-                    src={URL.createObjectURL(image)}
+                      src={objectUrl}
                     alt={`Upload ${index}`}
                     loading="lazy"
                     style={{ objectFit: "cover", height: "80px" }}
+                      // onLoad={(e) => {
+                      //   URL.revokeObjectURL(objectUrl)
+                      // }}
                   />
                   <IconButton
                     size="small"
@@ -459,20 +544,23 @@ class ChatInput extends StreamlitComponentBase<State> {
                     <CloseIcon fontSize="small" />
                   </IconButton>
                 </ImageListItem>
-              ))}
+                )
+              })}
             </ImageList>
           )}
-
+          {/* </Box> */}
           <Box
             sx={{
               display: "flex",
               flexDirection: "column",
               backgroundColor: theme?.secondaryBackgroundColor,
               borderRadius: 2,
-              minHeight: "20px",
+              minHeight: "60px",
               maxHeight: "300px",
               position: "relative",
               p: 1.5,
+              // width: "100%",
+              // flexShrink: 0, // Prevent shrinking
             }}
           >
             <input
@@ -497,8 +585,10 @@ class ChatInput extends StreamlitComponentBase<State> {
                 disabled={disabled}
                 value={this.state.text}
                 onChange={(e) => this.setState({ text: e.target.value })}
+                // onChange={this.handleTextChange}
                 onKeyDown={this.handleKeyDown}
                 placeholder={this.props.args["placeholder"]}
+                // placeholder={this.props.args?.placeholder}
                 variant="standard"
                 inputRef={this.textFieldRef}
                 sx={{
