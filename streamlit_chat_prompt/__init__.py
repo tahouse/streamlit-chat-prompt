@@ -13,7 +13,7 @@ from pydantic import BaseModel
 _RELEASE = True
 
 logger = logging.getLogger("streamlit_chat_prompt")
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 handler = logging.StreamHandler()
 handler.setFormatter(
     logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -78,6 +78,7 @@ def prompt(
     key: str,
     placeholder="Hi there! What should we talk about?",
     default: Optional[Union[str, PromptReturn]] = None,
+    force_apply_default: Optional[bool] = None,
     main_bottom: bool = True,
     max_image_size: int = 5 * 1024 * 1024,  # 5MB
     disabled: bool = False,
@@ -96,10 +97,12 @@ def prompt(
         Optional[PromptReturn]: Returns a PromptReturn object containing the text
         and images entered by the user when submitted, or None if nothing submitted yet.
     """
+    logger.debug(
+        f"Creating prompt: name={name}, key={key}, placeholder={placeholder}, default={default}, main_bottom={main_bottom}, force_apply_default={force_apply_default}"
+    )
     # Convert string default to PromptReturn if needed
     if isinstance(default, str):
         default = PromptReturn(text=default)
-
 
     if f"chat_prompt_{key}_prev_uuid" not in st.session_state:
         st.session_state[f"chat_prompt_{key}_prev_uuid"] = None
@@ -176,14 +179,17 @@ def prompt(
         name=name,
         placeholder=placeholder,
         default=default_value,
+        force_apply_default=force_apply_default,
         key=key,
         disabled=disabled,
         max_image_size=max_image_size,
     )
+    logger.debug(f"prompt value: {component_value}")
 
     if (
         component_value
         and component_value["uuid"] != st.session_state[f"chat_prompt_{key}_prev_uuid"]
+        and component_value["uuid"] is not None
     ):
         # we have a new prompt return
         st.session_state[f"chat_prompt_{key}_prev_uuid"] = component_value["uuid"]
@@ -198,7 +204,6 @@ def prompt(
                 images.append(
                     ImageData(type=image_type, format=image_format, data=image_data)
                 )
-                # print(len(image_data) / 1024 / 1024)
 
         if not images and not component_value.get("text"):
             return None
