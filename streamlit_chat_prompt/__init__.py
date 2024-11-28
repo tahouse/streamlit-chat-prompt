@@ -78,27 +78,33 @@ def prompt(
     key: str,
     placeholder="Hi there! What should we talk about?",
     default: Optional[Union[str, PromptReturn]] = None,
-    force_apply_default: Optional[bool] = None,
     main_bottom: bool = True,
     max_image_size: int = 5 * 1024 * 1024,  # 5MB
     disabled: bool = False,
+    log_level: str = "DEBUG",
 ) -> Optional[PromptReturn]:
     """Create a chat-like prompt input at the bottom of the page.
 
     Args:
         name (str): A unique identifier for this prompt instance.
         key (str): Used to ensure only a single prompt can be created.
-        placeholder (str, optional): The placeholder text shown in the input field.
+        placeholder (str, optional): The placeholder text shown in the input field. Defaults to "Hi there! What should we talk about?".
         default (Union[str, PromptReturn], optional): Default value for the prompt.
-            Can be either a string (text only) or PromptReturn object (text and images).
-        main_bottom (bool, optional): Whether to position at bottom of main area.
+            Can be either a string (text only) or PromptReturn object (text and images). Defaults to None.
+        main_bottom (bool, optional): Whether to position at bottom of main area. Defaults to True.
+        max_image_size (int, optional): Maximum size of uploaded images in bytes. Defaults to 5MB.
+        disabled (bool, optional): Whether the prompt input is disabled. Defaults to False.
+        log_level (str, optional): Logging level for the component. Defaults to "DEBUG".
 
     Returns:
         Optional[PromptReturn]: Returns a PromptReturn object containing the text
         and images entered by the user when submitted, or None if nothing submitted yet.
+        The PromptReturn object has two optional fields:
+            - text (Optional[str]): The text entered by the user
+            - images (Optional[List[ImageData]]): List of images uploaded by the user
     """
     logger.debug(
-        f"Creating prompt: name={name}, key={key}, placeholder={placeholder}, default={default}, main_bottom={main_bottom}, force_apply_default={force_apply_default}"
+        f"Creating prompt: name={name}, key={key}, placeholder={placeholder}, default={default}, main_bottom={main_bottom}"
     )
     # Convert string default to PromptReturn if needed
     if isinstance(default, str):
@@ -179,10 +185,10 @@ def prompt(
         name=name,
         placeholder=placeholder,
         default=default_value,
-        force_apply_default=force_apply_default,
         key=key,
         disabled=disabled,
         max_image_size=max_image_size,
+        debug=log_level,
     )
     logger.debug(f"prompt value: {component_value}")
 

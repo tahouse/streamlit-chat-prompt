@@ -167,9 +167,17 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
     }
   }
 
-  // Helper method to compare arrays
-  private arraysEqual(a: string[], b: string[]): boolean {
-    return a.length === b.length && a.every((val, index) => val === b[index])
+  private isMobileDevice(): boolean {
+    return (
+      (typeof window !== "undefined" &&
+        (navigator.userAgent.match(/Android/i) ||
+          navigator.userAgent.match(/webOS/i) ||
+          navigator.userAgent.match(/iPhone/i) ||
+          navigator.userAgent.match(/iPad/i) ||
+          navigator.userAgent.match(/iPod/i) ||
+          navigator.userAgent.match(/BlackBerry/i) ||
+          navigator.userAgent.match(/Windows Phone/i))) !== null
+    )
   }
 
   private setImagesFromDefault(defaultValue: PromptData) {
@@ -214,7 +222,17 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
 
   // Helper method to focus text field
   private focusTextField = () => {
-    if (this.textFieldRef.current) {
+    if (this.isMobileDevice()) {
+      // Actively blur/remove focus on mobile
+      if (this.textFieldRef.current) {
+        this.textFieldRef.current.blur()
+      }
+      // Also try to remove focus from any active element
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur()
+      }
+    } else if (this.textFieldRef.current) {
+      // Focus on desktop as before
       this.textFieldRef.current.focus()
     }
   }
@@ -465,7 +483,33 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
     })
   }
 
-  handleSubmit() {
+  private generateUUID = (): string => {
+    console.log("Generating UUID")
+    // Try native crypto.randomUUID() first
+    if (typeof crypto !== "undefined" && crypto.randomUUID) {
+      return crypto.randomUUID()
+    }
+
+    // Fallback for older browsers
+    const getRandomHex = () => {
+      const bytes = new Uint8Array(16)
+      crypto.getRandomValues(bytes)
+      return Array.from(bytes)
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("")
+    }
+
+    const hex = getRandomHex()
+    return [
+      hex.slice(0, 8),
+      hex.slice(8, 12),
+      "4" + hex.slice(13, 16),
+      "8" + hex.slice(17, 20),
+      hex.slice(20, 32),
+    ].join("-")
+  }
+
+  async handleSubmit() {
     Logger.group("events", "Submit")
     Logger.debug("events", "Current state", this.state)
 
@@ -481,19 +525,23 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
       })
     })
 
-    Promise.all(imagePromises).then((imageData) => {
-      Streamlit.setComponentValue({
-        uuid: crypto.randomUUID(),
-        text: this.state.text,
-        images: imageData,
-      })
-      this.setState({
-        uuid: "",
-        text: "",
-        images: [],
-        userHasInteracted: false,
-        lastSubmissionTime: Date.now(), // Record submission time
-      })
+    // Wait for all images to be processed
+    const imageData = await Promise.all(imagePromises)
+
+    const submission = {
+      uuid: this.generateUUID(),
+      text: this.state.text,
+      images: imageData,
+    }
+    Logger.debug("events", "Submission:", submission)
+
+    Streamlit.setComponentValue(submission)
+    this.setState({
+      uuid: "",
+      text: "",
+      images: [],
+      userHasInteracted: false,
+      lastSubmissionTime: Date.now(), // Record submission time
     })
     this.focusTextField()
     Logger.debug("events", "Submission complete")
@@ -512,11 +560,11 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
     this.focusTextField()
   }
 
-  handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+  async handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     if (this.state.disabled) return
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
-      this.handleSubmit()
+      await this.handleSubmit()
     }
   }
 
@@ -732,7 +780,7 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
               <IconButton
                 size="small"
                 disabled={disabled}
-                onClick={this.handleSubmit}
+                onClick={async () => await this.handleSubmit()}
                 sx={{
                   color: theme?.textColor,
                   padding: "0px",
