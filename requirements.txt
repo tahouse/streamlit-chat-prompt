@@ -1,1 +1,4 @@
+# note these requirements are to run example.py 
+# see setup.py for streamlit-chat-prompt's dependencies
 pydantic~=2.9
+streamlit-chat-prompt
