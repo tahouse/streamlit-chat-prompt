@@ -68,6 +68,46 @@ class PromptReturn(BaseModel):
 _prompt_main_singleton_key: Optional[str] = None
 
 
+def pin_bottom(key: str):
+    # pin prompt to bottom of main area
+    st.markdown(
+        f"""
+        <style>
+        .st-key-{key}"""
+        + """ {
+            position: fixed;
+            bottom: 1rem;
+            z-index: 1000;
+        }
+
+        /* Main content area */
+        section[data-testid="stMain"] {
+            margin-bottom: 100px;  /* Make room for the fixed component */
+        }
+
+        /* When sidebar is expanded */
+        """
+        + f""".sidebar-expanded .st-key-{key}"""
+        + """ {
+            left: calc((100% - 245px) / 2 + 245px);  /* 245px is default sidebar width */
+            width: calc(min(800px, 100% - 245px - 2rem)) !important;
+            transform: translateX(-50%);
+        }
+
+        /* When sidebar is collapsed */
+        """
+        + f""".sidebar-collapsed .st-key-{key}"""
+        + """ {
+            left: 50%;
+            width: calc(min(800px, 100% - 2rem)) !important;
+            transform: translateX(-50%);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 # Create a wrapper function for the component. This is an optional
 # best practice - we could simply expose the component function returned by
 # `declare_component` and call it done. The wrapper allows us to customize
@@ -137,43 +177,7 @@ def prompt(
             )
         _prompt_main_singleton_key = key
 
-        # pin prompt to bottom of main area
-        st.markdown(
-            f"""
-        <style>
-        .st-key-{key}"""
-            + """ {
-            position: fixed;
-            bottom: 1rem;
-            z-index: 1000;
-        }
-
-        /* Main content area */
-        section[data-testid="stMain"] {
-            margin-bottom: 100px;  /* Make room for the fixed component */
-        }
-
-        /* When sidebar is expanded */
-        """
-            + f""".sidebar-expanded .st-key-{key}"""
-            + """ {
-            left: calc((100% - 245px) / 2 + 245px);  /* 245px is default sidebar width */
-            width: calc(min(800px, 100% - 245px - 2rem)) !important;
-            transform: translateX(-50%);
-        }
-
-        /* When sidebar is collapsed */
-        """
-            + f""".sidebar-collapsed .st-key-{key}"""
-            + """ {
-            left: 50%;
-            width: calc(min(800px, 100% - 2rem)) !important;
-            transform: translateX(-50%);
-        }
-        </style>
-        """,
-            unsafe_allow_html=True,
-        )
+        pin_bottom(key)
 
     # Call through to our private component function. Arguments we pass here
     # will be sent to the frontend, where they'll be available in an "args"
