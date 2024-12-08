@@ -92,7 +92,7 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
     // Configure logger based on props
     Logger.configure({
       enabled: this.props.args?.debug || true,
-      level: "debug",
+      level: "warn",
       categories: {
         component: true,
         state: true,
@@ -197,16 +197,85 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
       })
     }
   }
+  // Define message handler as class method
+  private handleMessage = (event: MessageEvent) => {
+    Logger.debug("events", "Message received in handler:", {
+      data: event.data,
+      origin: event.origin,
+      source: event.source,
+      type: typeof event.data,
+    })
 
-  componentDidMount() {
-    document.addEventListener("paste", this.handlePasteEvent)
-    Streamlit.setFrameHeight()
-    // setTimeout(() => Streamlit.setFrameHeight(), 100)
-    // setTimeout(() => Streamlit.setFrameHeight(), 500)
+    if (event.data.type === "focus_textarea") {
+      Logger.debug("events", "Focus textarea event received")
+      this.focusTextField()
+    }
   }
 
-  componentWillUnmount() {
+  public componentDidMount(): void {
+    super.componentDidMount()
+
+    try {
+      Logger.debug("events", "Component mounted, adding message listener")
+    } catch (e) {
+      console.error("ChatInput: Error using Logger in componentDidMount:", e)
+    }
+
+    try {
+      window.addEventListener("message", this.handleMessage)
+      document.addEventListener("paste", this.handlePasteEvent)
+      Streamlit.setFrameHeight()
+    } catch (e) {
+      console.error("ChatInput: Error in componentDidMount:", e)
+    }
+  }
+
+  public componentWillUnmount() {
+    window.removeEventListener("message", this.handleMessage)
     document.removeEventListener("paste", this.handlePasteEvent)
+  }
+
+  public componentDidUpdate() {
+    super.componentDidUpdate()
+
+    // Get current default values
+    const newDefault = PromptData.fromProps(this.props)
+
+    // Don't apply defaults if we've just submitted (give Python time to update props)
+    const timeSinceSubmission = Date.now() - this.state.lastSubmissionTime
+    const isRecentSubmission = timeSinceSubmission < 1000 // 1 second threshold
+
+    Logger.debug("state", "Component update", {
+      newDefault,
+      currentState: this.state,
+      shouldApplyDefault:
+        !this.state.userHasInteracted && this.state.text === "",
+    })
+
+    // Determine when to apply defaults
+    const shouldApplyDefault =
+      // forceApplyDefault ||
+      !this.state.userHasInteracted &&
+      !isRecentSubmission &&
+      this.state.text === "" &&
+      this.state.images.length === 0
+
+    if (shouldApplyDefault) {
+      Logger.debug("events", "Applying default", {
+        newDefault,
+        timeSinceSubmission,
+        state: this.state,
+      })
+      this.setState({
+        text: newDefault.text,
+        userHasInteracted: false,
+      })
+
+      // Handle image defaults if needed
+      if (newDefault.images?.length > 0) {
+        this.setImagesFromDefault(newDefault)
+      }
+    }
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
@@ -236,6 +305,7 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
       this.textFieldRef.current.focus()
     }
   }
+
   // Update user interaction tracking
   handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     this.setState({
@@ -548,11 +618,6 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
     Logger.groupEnd("events")
   }
 
-  validateFile(file: File): boolean {
-    const validTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"]
-    return validTypes.includes(file.type)
-  }
-
   removeImage(index: number) {
     this.setState({
       images: this.state.images.filter((_, i) => i !== index),
@@ -566,49 +631,6 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
       e.preventDefault()
       await this.handleSubmit()
     }
-  }
-
-  componentDidUpdate() {
-    // Get current default values
-    const newDefault = PromptData.fromProps(this.props)
-
-    // Don't apply defaults if we've just submitted
-    // (give Python time to update props)
-    const timeSinceSubmission = Date.now() - this.state.lastSubmissionTime
-    const isRecentSubmission = timeSinceSubmission < 1000 // 1 second threshold
-
-    Logger.debug("state", "Component update", {
-      newDefault,
-      currentState: this.state,
-      shouldApplyDefault:
-        !this.state.userHasInteracted && this.state.text === "",
-    })
-
-    // Determine when to apply defaults
-    const shouldApplyDefault =
-      // forceApplyDefault ||
-      !this.state.userHasInteracted &&
-      !isRecentSubmission &&
-      this.state.text === "" &&
-      this.state.images.length === 0
-
-    if (shouldApplyDefault) {
-      Logger.debug("events", "Applying default", {
-        newDefault,
-        timeSinceSubmission,
-        state: this.state,
-      })
-      this.setState({
-        text: newDefault.text,
-        userHasInteracted: false,
-      })
-
-      // Handle image defaults if needed
-      if (newDefault.images?.length > 0) {
-        this.setImagesFromDefault(newDefault)
-      }
-    }
-    super.componentDidUpdate() // Call parent class implementation first
   }
 
   render() {
