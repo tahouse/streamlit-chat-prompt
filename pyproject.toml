@@ -1,0 +1,53 @@
+# pyproject.toml
+
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "streamlit-chat-prompt"
+version = "0.3.6"
+description = "A streamlit custom component that allows you to create a chat prompt with paste and image attachment support"
+readme = { file = "README.md", content-type = "text/markdown" }
+authors = [
+    { name = "Tyler House", email = "26489166+tahouse@users.noreply.github.com" },
+]
+license = { text = "Apache-2.0" }
+keywords = [
+    "streamlit",
+    "component",
+    "chat",
+    "prompt",
+    "paste",
+    "image",
+    "clipboard",
+    "material ui",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "Topic :: Desktop Environment",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Software Development :: User Interfaces",
+]
+requires-python = ">=3.7"
+dependencies = ["streamlit >=0.63", "pydantic >=2"]
+
+[project.optional-dependencies]
+devel = [
+    "wheel",
+    "setuptools==69.0.3",
+    "pytest==7.4.0",
+    "twine~=6.1",
+    "packaging>=24.2",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["*"]

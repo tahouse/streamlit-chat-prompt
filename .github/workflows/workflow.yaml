@@ -22,7 +22,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: streamlit_chat_prompt/frontend/package-lock.json
       - name: Install Node dependencies
@@ -36,10 +36,10 @@ jobs:
       - name: Install pypa/build
         run: >-
           python3 -m
-          pip install wheel setuptools
+          pip install wheel setuptools build
           --user
       - name: Build a binary wheel and a source tarball
-        run: python3 setup.py sdist bdist_wheel
+        run: python3 -m build
       - name: Store the distribution packages
         uses: actions/upload-artifact@v4
         with:
