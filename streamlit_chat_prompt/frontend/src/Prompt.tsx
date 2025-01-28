@@ -179,11 +179,10 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
           navigator.userAgent.match(/Windows Phone/i))) !== null
     );
   }
-
-  private setImagesFromDefault(defaultValue: PromptData) {
+  private async setImagesFromDefault(defaultValue: PromptData) {
     if (defaultValue.images && defaultValue.images.length > 0) {
       // Convert base64 strings to Files
-      Promise.all(
+      const files = await Promise.all(
         defaultValue.images.map(async (dataUrl: string) => {
           const response = await fetch(dataUrl);
           const blob = await response.blob();
@@ -192,9 +191,38 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
             .slice(2)}.${blob.type.split("/")[1]}`;
           return new File([blob], fileName, {type: blob.type});
         })
-      ).then((files) => {
-        Promise.all(files.map((file) => this.processAndAddImage(file)));
-      });
+      );
+
+      // Process images and collect them
+      const processedImages: File[] = [];
+      for (const file of files) {
+        const processedImage = await this.processImage(file);
+        if (processedImage) {
+          processedImages.push(processedImage);
+        } else {
+          Logger.warn("images", "Failed to process image", file.name);
+          this.showNotification(
+            `Could not compress "${file.name}" to under ${(
+              this.maxImageSize /
+              1024 /
+              1024
+            ).toFixed(1)} MB. Try a smaller image.`,
+            "warning"
+          );
+        }
+      }
+
+      // Replace the images in the state with the new processed images
+      this.setState(
+        {
+          images: processedImages,
+          userHasInteracted: true,
+        },
+        () => {
+          // Force frame height update after state change
+          setTimeout(() => Streamlit.setFrameHeight(), 0);
+        }
+      );
     }
   }
   // Define message handler as class method

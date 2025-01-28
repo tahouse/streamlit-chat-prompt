@@ -2,8 +2,9 @@
 # Streamlit Chat Prompt
 
 [![PyPI](https://img.shields.io/pypi/v/streamlit-chat-prompt)](https://pypi.org/project/streamlit-chat-prompt/)
-[![PyPI - Downloads](https://img.shields.io/pypi/dm/streamlit-chat-prompt)](https://pypi.org/project/streamlit-chat-prompt/)
-![GitHub](https://img.shields.io/github/license/tahouse/streamlit-chat-prompt)
+[![Total Downloads](https://static.pepy.tech/badge/streamlit-chat-prompt)](https://pepy.tech/project/streamlit-chat-prompt)
+[![Monthly Downloads](https://img.shields.io/pypi/dm/streamlit-chat-prompt)](https://pypi.org/project/streamlit-chat-prompt/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 
 A Streamlit component that provides a modern chat-style prompt with image attachment and paste support. This component was built to mimic the style of [streamlit.chat_input](https://docs.streamlit.io/develop/api-reference/chat/st.chat_input) while expanding functionality with images. Future work may include addition of speech-to-text input.
 
