@@ -16,5 +16,6 @@ export interface State {
     clipboardInspector: {
         open: boolean;
         data: ClipboardInspectorData[];
+        loading: boolean;
     };
 }

@@ -22,11 +22,18 @@ import { PromptData } from "./PromptData";
 import { Props } from "./Props";
 import { State } from "./State";
 import { ChatTextField } from "./TextField";
+
+export const DIALOG_HEIGHTS = {
+  CLIPBOARD_INSPECTOR: 400,
+  CLIPBOARD_INSPECTOR_MAX: 900,
+  BASE_PADDING: 50
+} as const;
 export class ChatInput extends StreamlitComponentBase<State, Props> {
   private fileInputRef: React.RefObject<HTMLInputElement>;
   private textFieldRef: React.RefObject<HTMLInputElement>;
   private handlePasteEvent: (e: ClipboardEvent) => void;
   private maxImageSize: number;
+  private isShowingDialog: boolean = false;
 
   constructor(props: Props) {
     super(props as any);
@@ -61,7 +68,8 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
       },
       clipboardInspector: {
         open: false,
-        data: []
+        data: [],
+        loading: false,
       }
     };
 
@@ -79,23 +87,35 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
     this.handleFileUpload = this.handleFileUpload.bind(this);
     this.removeImage = this.removeImage.bind(this);
     this.handleTextChange = this.handleTextChange.bind(this);
-
-    // Handle paste events
     this.handlePasteEvent = async (e: ClipboardEvent) => {
       if (this.state.disabled) return;
-      // Get the clipboard data and update state
-      const clipboardInspectorData = inspectClipboard(e);
-      this.setState({
-        clipboardInspector: {
-          open: true,
-          data: clipboardInspectorData
-        },
-        userHasInteracted: true
-      });
+
       const clipboardData = e.clipboardData;
       if (!clipboardData) return;
 
-      this.setState({ userHasInteracted: true });
+      // Get the clipboard data and update state
+      this.setState({
+        clipboardInspector: {
+          open: true,
+          data: [],
+          loading: true
+        }
+      });
+
+      // Get the clipboard data and update state
+      const clipboardInspectorData = inspectClipboard(e);
+      this.isShowingDialog = true;
+      this.setState({
+        clipboardInspector: {
+          open: true,
+          data: clipboardInspectorData,
+          loading: false
+        },
+        userHasInteracted: true
+      }, () => {
+        this.updateFrameHeight(DIALOG_HEIGHTS.CLIPBOARD_INSPECTOR);
+
+      });
 
       // Handle files and images from clipboard
       const files = clipboardData.files;
@@ -105,7 +125,6 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
         for (const file of filesArray) {
           await this.processAndAddImage(file);
         }
-        return;
       }
 
       // Handle images from clipboard items
@@ -172,12 +191,9 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
         {
           images: processedImages,
           userHasInteracted: true,
-        },
-        () => {
-          // Force frame height update after state change
-          setTimeout(() => Streamlit.setFrameHeight(), 0);
-        }
-      );
+        }, () => {
+          this.updateFrameHeight(); // Add this if you need to update height after images load
+        });
     }
   }
   // Define message handler as class method
@@ -194,6 +210,35 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
       this.focusTextField();
     }
   };
+  private updateFrameHeight = (() => {
+    let timeoutId: NodeJS.Timeout | null = null;
+    let lastHeight: number = 0;
+
+    return (height?: number) => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+
+      timeoutId = setTimeout(() => {
+        const newHeight = height || (() => {
+          const element = document.querySelector('.main-content') as HTMLElement;
+          if (element) {
+            // Add extra padding for clipboard inspector if open
+            const baseHeight = element.getBoundingClientRect().height;
+            const extraHeight = this.state.clipboardInspector.open ? DIALOG_HEIGHTS.CLIPBOARD_INSPECTOR : 0;
+            return Math.max(baseHeight, extraHeight) + 50;
+          }
+          return undefined;
+        })();
+
+        // Only update if height has changed
+        if (newHeight && newHeight !== lastHeight) {
+          lastHeight = newHeight;
+          Streamlit.setFrameHeight(newHeight);
+        }
+      }, 100); // Increased debounce time
+    };
+  })();
 
   public componentDidMount(): void {
     super.componentDidMount();
@@ -207,7 +252,7 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
     try {
       window.addEventListener("message", this.handleMessage);
       document.addEventListener("paste", this.handlePasteEvent);
-      Streamlit.setFrameHeight();
+      this.updateFrameHeight();
     } catch (e) {
       console.error("ChatInput: Error in componentDidMount:", e);
     }
@@ -220,7 +265,9 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
 
   public componentDidUpdate() {
     super.componentDidUpdate();
-
+    if (!this.isShowingDialog && (this.state.images.length > 0 || this.state.text)) {
+      this.updateFrameHeight(); // Changed from Streamlit.setFrameHeight()
+    }
     // Get current default values
     const newDefault = PromptData.fromProps(this.props);
 
@@ -326,8 +373,7 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
               userHasInteracted: true,
             }),
             () => {
-              // Force frame height update after state change
-              setTimeout(() => Streamlit.setFrameHeight(), 0);
+              this.updateFrameHeight(); // Add this if you need to update height after adding image
             }
           );
         } else {
@@ -353,6 +399,7 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
         "error"
       );
     }
+
   }
 
   async handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -389,6 +436,19 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
       },
     });
   }
+  // In ChatInput.tsx, add a method to handle dialog close
+  private handleCloseDialog = () => {
+    this.isShowingDialog = false;
+    this.setState({
+      clipboardInspector: {
+        open: false,
+        data: [],
+        loading: false
+      }
+    }, () => {
+      setTimeout(() => this.updateFrameHeight(), 100); // Changed from Streamlit.setFrameHeight()
+    });
+  };
 
   async handleSubmit() {
     Logger.group("events", "Submit");
@@ -451,7 +511,7 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
     Logger.debug("events", "Prompt render", this.props.args, this.state);
 
     return (
-      <>
+      <Box className="main-content">
         <Paper
           elevation={0}
           sx={{
@@ -594,6 +654,14 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
             </Box>
           </Box>
         </Paper>
+        <Box sx={{ position: 'relative', minHeight: this.state.clipboardInspector.open ? `${DIALOG_HEIGHTS.CLIPBOARD_INSPECTOR}px` : 'auto' }}>
+          <ClipboardInspector
+            open={this.state.clipboardInspector.open}
+            data={this.state.clipboardInspector.data}
+            theme={this.props.theme}
+            onClose={this.handleCloseDialog}
+          />
+        </Box>
         <Snackbar
           open={this.state.notification.open}
           autoHideDuration={6000}
@@ -615,16 +683,7 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
             {this.state.notification.message}
           </Alert>
         </Snackbar>
-
-        <ClipboardInspector
-          open={this.state.clipboardInspector.open}
-          data={this.state.clipboardInspector.data}
-          theme={this.props.theme}
-          onClose={() => this.setState({
-            clipboardInspector: { ...this.state.clipboardInspector, open: false }
-          })}
-        />
-      </>
+      </Box>
     );
   }
 }
