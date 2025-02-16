@@ -1,4 +1,4 @@
-import {AttachFile, Send} from "@mui/icons-material";
+import { AttachFile, Send } from "@mui/icons-material";
 import CloseIcon from "@mui/icons-material/Close";
 import {
   Alert,
@@ -7,80 +7,22 @@ import {
   ImageList,
   ImageListItem,
   Paper,
-  Snackbar,
-  TextField,
+  Snackbar
 } from "@mui/material";
 import React from "react";
 import {
   Streamlit,
-  StreamlitComponentBase,
-  withStreamlitConnection,
+  StreamlitComponentBase
 } from "streamlit-component-lib";
-import {Logger} from "./logger";
-
-class PromptData {
-  text: string;
-  images: string[];
-
-  constructor(text: string = "", images: string[] = []) {
-    this.text = text;
-    this.images = images;
-  }
-
-  static fromProps(props: any): PromptData {
-    if (!props || !props.args || !props.args.default) {
-      return new PromptData();
-    }
-
-    const defaultData = props.args.default;
-    return new PromptData(
-      defaultData.text || "",
-      Array.isArray(defaultData.images) ? defaultData.images : []
-    );
-  }
-
-  static empty(): PromptData {
-    return new PromptData();
-  }
-
-  isEmpty(): boolean {
-    return !this.text && this.images.length === 0;
-  }
-
-  clone(): PromptData {
-    return new PromptData(this.text, [...this.images]);
-  }
-}
-
-interface Props {
-  default?: {
-    text?: string;
-    images?: string[];
-  };
-  // force_apply_default?: boolean
-  max_image_size?: number;
-  placeholder?: string;
-  disabled?: boolean;
-  key?: string;
-  debug?: boolean;
-}
-
-interface State {
-  uuid: string;
-  text: string;
-  images: File[];
-  isFocused: boolean;
-  disabled: boolean;
-  userHasInteracted: boolean;
-  lastSubmissionTime: number;
-  notification: {
-    open: boolean;
-    message: string;
-    severity: "error" | "warning" | "info";
-  };
-}
-
-class ChatInput extends StreamlitComponentBase<State, Props> {
+import { checkFileSize, processImage } from "../utils/images";
+import { Logger } from "../utils/logger";
+import { generateUUID } from "../utils/uuid";
+import { ClipboardInspector, inspectClipboard } from "./ClipboardInspector";
+import { PromptData } from "./PromptData";
+import { Props } from "./Props";
+import { State } from "./State";
+import { ChatTextField } from "./TextField";
+export class ChatInput extends StreamlitComponentBase<State, Props> {
   private fileInputRef: React.RefObject<HTMLInputElement>;
   private textFieldRef: React.RefObject<HTMLInputElement>;
   private handlePasteEvent: (e: ClipboardEvent) => void;
@@ -117,6 +59,10 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
         message: "",
         severity: "info",
       },
+      clipboardInspector: {
+        open: false,
+        data: []
+      }
     };
 
     Logger.debug("component", "Initial construction", this.props);
@@ -137,11 +83,19 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
     // Handle paste events
     this.handlePasteEvent = async (e: ClipboardEvent) => {
       if (this.state.disabled) return;
-
+      // Get the clipboard data and update state
+      const clipboardInspectorData = inspectClipboard(e);
+      this.setState({
+        clipboardInspector: {
+          open: true,
+          data: clipboardInspectorData
+        },
+        userHasInteracted: true
+      });
       const clipboardData = e.clipboardData;
       if (!clipboardData) return;
 
-      this.setState({userHasInteracted: true});
+      this.setState({ userHasInteracted: true });
 
       // Handle files and images from clipboard
       const files = clipboardData.files;
@@ -190,14 +144,14 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
           const fileName = `default-image-${Math.random()
             .toString(36)
             .slice(2)}.${blob.type.split("/")[1]}`;
-          return new File([blob], fileName, {type: blob.type});
+          return new File([blob], fileName, { type: blob.type });
         })
       );
 
       // Process images and collect them
       const processedImages: File[] = [];
       for (const file of files) {
-        const processedImage = await this.processImage(file);
+        const processedImage = await processImage(file, this.maxImageSize);
         if (processedImage) {
           processedImages.push(processedImage);
         } else {
@@ -353,9 +307,9 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
     try {
       Logger.debug("images", "Processing file", file.name);
 
-      const processedImage = await this.processImage(file);
+      const processedImage = await processImage(file, this.maxImageSize);
       if (processedImage) {
-        const sizeCheck = await this.checkFileSize(processedImage);
+        const sizeCheck = await checkFileSize(processedImage, this.maxImageSize);
         if (sizeCheck.isValid) {
           Logger.debug("images", "Successfully processed image:", {
             name: file.name,
@@ -418,155 +372,9 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
     for (const file of files) {
       await this.processAndAddImage(file);
     }
-    this.setState({userHasInteracted: true});
+    this.setState({ userHasInteracted: true });
 
     this.focusTextField();
-  }
-
-  private async checkFileSize(file: File): Promise<{
-    isValid: boolean;
-    fileSize: number;
-    base64Size: number;
-  }> {
-    // Get base64 size
-    const base64Size = await new Promise<number>((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64String = reader.result as string;
-        resolve(base64String.length);
-      };
-      reader.readAsDataURL(file);
-    });
-
-    const fileSize = file.size;
-    const isValid =
-      base64Size <= this.maxImageSize && fileSize <= this.maxImageSize;
-
-    Logger.debug("images", "File size check", {
-      fileName: file.name,
-      fileSize: `${(fileSize / 1024 / 1024).toFixed(2)}MB`,
-      base64Size: `${(base64Size / 1024 / 1024).toFixed(2)}MB`,
-      maxSize: `${(this.maxImageSize / 1024 / 1024).toFixed(2)}MB`,
-      isValid,
-    });
-
-    return {
-      isValid,
-      fileSize,
-      base64Size,
-    };
-  }
-
-  async processImage(file: File): Promise<File | null> {
-    Logger.debug("images", "Processing image", file.name, {
-      originalSize: `${(file.size / 1024 / 1024).toFixed(2)}MB`,
-      type: file.type,
-    });
-
-    // Check if the original file is already small enough
-    const initialSizeCheck = await this.checkFileSize(file);
-    if (initialSizeCheck.isValid) {
-      Logger.debug(
-        "images",
-        "Image already under size limit, returning original"
-      );
-      return file;
-    }
-
-    const img = new Image();
-    const imgUrl = URL.createObjectURL(file);
-
-    try {
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-        img.src = imgUrl;
-      });
-      Logger.debug("images", "Image loaded:", {
-        originalDimensions: `${img.width}x${img.height}`,
-      });
-
-      // Try compression only first
-      for (const quality of [1.0, 0.9, 0.8, 0.7]) {
-        Logger.debug("images", "Trying compression only with quality", quality);
-        const result = await this.compressImage(img, quality, 1.0);
-        const sizeCheck = await this.checkFileSize(result);
-        if (sizeCheck.isValid) {
-          Logger.debug("images", "Successfully compressed without scaling");
-          return result;
-        }
-      }
-
-      // If compression alone didn't work, try scaling down
-      let scale = 0.9;
-      for (let attempt = 0; attempt < 5; attempt++) {
-        Logger.debug(
-          "images",
-          `Trying scaling with scale=${scale.toFixed(2)} and quality=0.8`
-        );
-        const result = await this.compressImage(img, 0.8, scale);
-        const sizeCheck = await this.checkFileSize(result);
-        if (sizeCheck.isValid) {
-          Logger.debug("images", "Successfully compressed with scaling");
-          return result;
-        }
-        scale *= 0.8;
-      }
-      Logger.warn(
-        "images",
-        "Failed to compress image below size limit after all attempts"
-      );
-      return null;
-    } catch (err) {
-      Logger.error("images", "Error processing image", err);
-      throw err;
-    } finally {
-      URL.revokeObjectURL(imgUrl);
-    }
-  }
-
-  private async compressImage(
-    img: HTMLImageElement,
-    quality: number,
-    scale: number
-  ): Promise<File> {
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d")!;
-
-    canvas.width = img.width * scale;
-    canvas.height = img.height * scale;
-    Logger.debug("images", "Compressing image:", {
-      quality,
-      scale,
-      canvasDimensions: `${canvas.width}x${canvas.height}`,
-    });
-
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-    const blob = await new Promise<Blob>((resolve) => {
-      canvas.toBlob(
-        (blob) => {
-          Logger.debug("images", "Blob created:", {
-            size: `${(blob!.size / 1024 / 1024).toFixed(2)}MB`,
-            type: "image/jpeg",
-          });
-          resolve(blob!);
-        },
-        "image/jpeg",
-        quality
-      );
-    });
-
-    const result = new File([blob], "compressed.jpg", {type: "image/jpeg"});
-    Logger.debug("images", "Compression complete:", {
-      inputDimensions: `${img.width}x${img.height}`,
-      outputDimensions: `${canvas.width}x${canvas.height}`,
-      quality,
-      scale,
-      finalSize: `${(result.size / 1024 / 1024).toFixed(2)}MB`,
-    });
-
-    return result;
   }
 
   private showNotification(
@@ -581,32 +389,6 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
       },
     });
   }
-
-  private generateUUID = (): string => {
-    console.log("Generating UUID");
-    // Try native crypto.randomUUID() first
-    if (typeof crypto !== "undefined" && crypto.randomUUID) {
-      return crypto.randomUUID();
-    }
-
-    // Fallback for older browsers
-    const getRandomHex = () => {
-      const bytes = new Uint8Array(16);
-      crypto.getRandomValues(bytes);
-      return Array.from(bytes)
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
-    };
-
-    const hex = getRandomHex();
-    return [
-      hex.slice(0, 8),
-      hex.slice(8, 12),
-      "4" + hex.slice(13, 16),
-      "8" + hex.slice(17, 20),
-      hex.slice(20, 32),
-    ].join("-");
-  };
 
   async handleSubmit() {
     Logger.group("events", "Submit");
@@ -628,7 +410,7 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
     const imageData = await Promise.all(imagePromises);
 
     const submission = {
-      uuid: this.generateUUID(),
+      uuid: generateUUID(),
       text: this.state.text,
       images: imageData,
     };
@@ -663,7 +445,7 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
   }
 
   render() {
-    const {theme} = this.props;
+    const { theme } = this.props;
     const disabled = this.state.disabled || false;
     this.maxImageSize = this.props.args?.max_image_size || 1024 * 1024 * 5;
     Logger.debug("events", "Prompt render", this.props.args, this.state);
@@ -693,16 +475,16 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
           }}
         >
           {this.state.images.length > 0 && (
-            <ImageList sx={{maxHeight: 100, m: 0}} cols={4} rowHeight={80}>
+            <ImageList sx={{ maxHeight: 100, m: 0 }} cols={4} rowHeight={80}>
               {this.state.images.map((image, index) => {
                 const objectUrl = URL.createObjectURL(image);
                 return (
-                  <ImageListItem key={index} sx={{position: "relative"}}>
+                  <ImageListItem key={index} sx={{ position: "relative" }}>
                     <img
                       src={objectUrl}
                       alt={`Upload ${index}`}
                       loading="lazy"
-                      style={{objectFit: "cover", height: "80px"}}
+                      style={{ objectFit: "cover", height: "80px" }}
                       onLoad={(e) => {
                         URL.revokeObjectURL(objectUrl);
                       }}
@@ -757,47 +539,14 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
                 mr: "50px",
               }}
             >
-              <TextField
-                multiline
-                maxRows={11}
-                fullWidth
-                disabled={disabled}
-                // value={displayText}
-                // onChange={(e) => this.setState({ text: e.target.value })}
+              <ChatTextField
                 value={this.state.text}
                 onChange={this.handleTextChange}
                 onKeyDown={this.handleKeyDown}
-                placeholder={this.props.args?.placeholder}
-                variant="standard"
+                disabled={this.state.disabled}
+                placeholder={this.props.args?.placeholder ?? ''}
                 inputRef={this.textFieldRef}
-                sx={{
-                  overflowY: "auto",
-                  maxHeight: "calc(11 * 1.5em)",
-                  "& .MuiInput-root": {
-                    margin: 0,
-                    color: theme?.textColor,
-                    "&:before, &:after": {
-                      display: "none",
-                    },
-                    "&.Mui-disabled": {
-                      // opacity: 0.7,
-                      cursor: "not-allowed",
-                    },
-                  },
-                  "& .MuiInput-input": {
-                    color: theme?.textColor,
-                    "&::placeholder": {
-                      color: `${theme?.textColor}99`,
-                      // opacity: disabled ? 0.5 : 1,
-                    },
-                    padding: 0,
-                    lineHeight: "1.5",
-                    minHeight: "24px",
-                    "&.Mui-disabled": {
-                      cursor: "not-allowed",
-                    },
-                  },
-                }}
+                theme={this.props.theme}
               />
             </Box>
 
@@ -850,25 +599,32 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
           autoHideDuration={6000}
           onClose={() =>
             this.setState({
-              notification: {...this.state.notification, open: false},
+              notification: { ...this.state.notification, open: false },
             })
           }
         >
           <Alert
             onClose={() =>
               this.setState({
-                notification: {...this.state.notification, open: false},
+                notification: { ...this.state.notification, open: false },
               })
             }
             severity={this.state.notification.severity}
-            sx={{width: "100%"}}
+            sx={{ width: "100%" }}
           >
             {this.state.notification.message}
           </Alert>
         </Snackbar>
+
+        <ClipboardInspector
+          open={this.state.clipboardInspector.open}
+          data={this.state.clipboardInspector.data}
+          theme={this.props.theme}
+          onClose={() => this.setState({
+            clipboardInspector: { ...this.state.clipboardInspector, open: false }
+          })}
+        />
       </>
     );
   }
 }
-
-export default withStreamlitConnection(ChatInput);
