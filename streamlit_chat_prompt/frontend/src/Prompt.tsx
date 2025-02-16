@@ -91,8 +91,8 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
 
     // Configure logger based on props
     Logger.configure({
-      enabled: this.props.args?.debug || true,
-      level: "warn",
+      enabled: true,
+      level: (this.props.args?.debug?.toLowerCase() as | "error" | "warn" | "debug") || "warn",
       categories: {
         component: true,
         state: true,
@@ -100,6 +100,7 @@ class ChatInput extends StreamlitComponentBase<State, Props> {
         events: true,
       },
     });
+    Logger.info("component", "Logger configuration:", Logger.getConfiguration());
     this.maxImageSize = this.props.args?.max_image_size || 1024 * 1024 * 5;
 
     const defaultValue = PromptData.fromProps(props);

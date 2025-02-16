@@ -1,12 +1,12 @@
 // logger.ts
-type LogCategory = 'component' | 'state' | 'images' | 'events';
+type LogCategory = "component" | "state" | "images" | "events"
 
 interface LogConfig {
-  enabled: boolean;
+  enabled: boolean
   categories: {
-    [key in LogCategory]: boolean;
-  };
-  level: 'none' | 'error' | 'warn' | 'debug';
+    [key in LogCategory]: boolean
+  }
+  level: "none" | "error" | "warn" | "info" | "debug"
 }
 
 export class Logger {
@@ -16,57 +16,72 @@ export class Logger {
       component: true,
       state: true,
       images: true,
-      events: true
+      events: true,
     },
-    level: 'none'
-  };
+    level: "none",
+  }
 
   static configure(options: Partial<LogConfig>) {
-    Logger.config = { ...Logger.config, ...options };
+    Logger.config = { ...Logger.config, ...options }
   }
 
   private static formatMessage(category: LogCategory, message: string): string {
-    return `[${new Date().toISOString()}] [${category.toUpperCase()}] ${message}`;
+    return `[${new Date().toISOString()}] [${category.toUpperCase()}] ${message}`
   }
 
-  private static shouldLog(category: LogCategory, level: 'error' | 'warn' | 'debug'): boolean {
-    if (!Logger.config.enabled) return false;
-    if (!Logger.config.categories[category]) return false;
+  static getConfiguration(): LogConfig {
+    return { ...Logger.config }
+  }
 
-    const levels = ['none', 'error', 'warn', 'debug'];
-    const configLevelIndex = levels.indexOf(Logger.config.level);
-    const messageLevelIndex = levels.indexOf(level);
+  private static shouldLog(
+    category: LogCategory,
+    level: "error" | "warn" | "info" | "debug"
+  ): boolean {
+    if (!Logger.config.enabled) return false
+    if (!Logger.config.categories[category]) return false
+    if (Logger.config.level === "none") return false
 
-    return messageLevelIndex <= configLevelIndex;
+    const levels = ["error", "warn", "info", "debug"] // Reversed order - error highest priority, debug lowest
+    const configLevelIndex = levels.indexOf(Logger.config.level)
+    const messageLevelIndex = levels.indexOf(level)
+
+    // Return true if message level is same or lower priority than config level
+    return messageLevelIndex <= configLevelIndex
   }
 
   static debug(category: LogCategory, message: string, ...args: any[]) {
-    if (this.shouldLog(category, 'debug')) {
-      console.log(this.formatMessage(category, message), ...args);
+    if (this.shouldLog(category, "debug")) {
+      console.debug(this.formatMessage(category, message), ...args)
+    }
+  }
+
+  static info(category: LogCategory, message: string, ...args: any[]) {
+    if (this.shouldLog(category, "info")) {
+      console.log(this.formatMessage(category, message), ...args)
     }
   }
 
   static warn(category: LogCategory, message: string, ...args: any[]) {
-    if (this.shouldLog(category, 'warn')) {
-      console.warn(this.formatMessage(category, message), ...args);
+    if (this.shouldLog(category, "warn")) {
+      console.warn(this.formatMessage(category, message), ...args)
     }
   }
 
   static error(category: LogCategory, message: string, ...args: any[]) {
-    if (this.shouldLog(category, 'error')) {
-      console.error(this.formatMessage(category, message), ...args);
+    if (this.shouldLog(category, "error")) {
+      console.error(this.formatMessage(category, message), ...args)
     }
   }
 
   static group(category: LogCategory, label: string) {
-    if (this.shouldLog(category, 'debug')) {
-      console.group(this.formatMessage(category, label));
+    if (this.shouldLog(category, "debug")) {
+      console.group(this.formatMessage(category, label))
     }
   }
 
   static groupEnd(category: LogCategory) {
-    if (this.shouldLog(category, 'debug')) {
-      console.groupEnd();
+    if (this.shouldLog(category, "debug")) {
+      console.groupEnd()
     }
   }
 }

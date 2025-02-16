@@ -121,7 +121,7 @@ def prompt(
     main_bottom: bool = True,
     max_image_size: int = 5 * 1024 * 1024,  # 5MB
     disabled: bool = False,
-    log_level: str = "DEBUG",
+    log_level: str = "warn",
 ) -> Optional[PromptReturn]:
     """Create a chat-like prompt input at the bottom of the page.
 
@@ -134,7 +134,7 @@ def prompt(
         main_bottom (bool, optional): Whether to position at bottom of main area. Defaults to True.
         max_image_size (int, optional): Maximum size of uploaded images in bytes. Defaults to 5MB.
         disabled (bool, optional): Whether the prompt input is disabled. Defaults to False.
-        log_level (str, optional): Logging level for the component. Defaults to "DEBUG".
+        log_level (str, optional): Logging level for the component. Defaults to "warn".
 
     Returns:
         Optional[PromptReturn]: Returns a PromptReturn object containing the text
