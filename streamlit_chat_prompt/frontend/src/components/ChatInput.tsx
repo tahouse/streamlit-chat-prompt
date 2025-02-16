@@ -17,7 +17,7 @@ import {
 import { checkFileSize, processImage } from "../utils/images";
 import { Logger } from "../utils/logger";
 import { generateUUID } from "../utils/uuid";
-import { ClipboardInspector, inspectClipboard } from "./ClipboardInspector";
+import { ClipboardInspector, ClipboardItem, inspectClipboard } from "./ClipboardInspector";
 import { PromptData } from "./PromptData";
 import { Props } from "./Props";
 import { State } from "./State";
@@ -31,7 +31,7 @@ export const DIALOG_HEIGHTS = {
 export class ChatInput extends StreamlitComponentBase<State, Props> {
   private fileInputRef: React.RefObject<HTMLInputElement>;
   private textFieldRef: React.RefObject<HTMLInputElement>;
-  private handlePasteEvent: (e: ClipboardEvent) => void;
+  // private handlePasteEvent: (e: ClipboardEvent) => void;
   private maxImageSize: number;
   private isShowingDialog: boolean = false;
 
@@ -87,24 +87,28 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
     this.handleFileUpload = this.handleFileUpload.bind(this);
     this.removeImage = this.removeImage.bind(this);
     this.handleTextChange = this.handleTextChange.bind(this);
-    this.handlePasteEvent = async (e: ClipboardEvent) => {
-      if (this.state.disabled) return;
+    this.handlePasteEvent = this.handlePasteEvent.bind(this);
+  }
+  private async handlePasteEvent(e: ClipboardEvent) {
+    if (this.state.disabled) return;
 
-      const clipboardData = e.clipboardData;
-      if (!clipboardData) return;
+    const clipboardData = e.clipboardData;
+    if (!clipboardData) return;
 
-      // Get the clipboard data and update state
-      this.setState({
-        clipboardInspector: {
-          open: true,
-          data: [],
-          loading: true
-        }
-      });
+    // Get unique content types (excluding duplicates)
+    const uniqueTypes = new Set(Array.from(clipboardData.items).map(item => {
+      if (item.type.startsWith('image/')) return 'image';
+      if (item.type === 'text/plain') return 'text';
+      if (item.type === 'text/html') return 'html';
+      return item.type;
+    }));
 
-      // Get the clipboard data and update state
+    // If more than one type, show the inspector
+    if (uniqueTypes.size > 1) {
+      e.preventDefault(); // Prevent default paste
       const clipboardInspectorData = inspectClipboard(e);
       this.isShowingDialog = true;
+
       this.setState({
         clipboardInspector: {
           open: true,
@@ -114,33 +118,22 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
         userHasInteracted: true
       }, () => {
         this.updateFrameHeight(DIALOG_HEIGHTS.CLIPBOARD_INSPECTOR);
-
       });
+      return;
+    }
 
-      // Handle files and images from clipboard
-      const files = clipboardData.files;
-      if (files.length > 0) {
-        e.preventDefault();
-        const filesArray = Array.from(files);
-        for (const file of filesArray) {
-          await this.processAndAddImage(file);
-        }
-      }
+    // Handle single type directly
+    const type = Array.from(uniqueTypes)[0];
 
-      // Handle images from clipboard items
-      const items = Array.from(clipboardData.items || []);
-      for (const item of items) {
-        if (item.type.indexOf("image") !== -1) {
-          e.preventDefault();
-          const blob = item.getAsFile();
-          if (blob) {
-            await this.processAndAddImage(blob);
-          }
-        }
+    if (type === 'image') {
+      e.preventDefault();
+      const files = Array.from(clipboardData.files);
+      for (const file of files) {
+        await this.processAndAddImage(file);
       }
-    };
+    }
+    // Let default paste handle text/html
   }
-
   private isMobileDevice(): boolean {
     return (
       (typeof window !== "undefined" &&
@@ -449,7 +442,17 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
       setTimeout(() => this.updateFrameHeight(), 100); // Changed from Streamlit.setFrameHeight()
     });
   };
-
+  private handleClipboardSelection = (selectedItems: ClipboardItem[]) => {
+    selectedItems.forEach(async item => {
+      if (item.type.startsWith('image/') && item.as_file) {
+        await this.processAndAddImage(item.as_file);
+      } else if (item.type === 'text/plain' && item.content) {
+        this.setState(prev => ({
+          text: prev.text + (prev.text ? '\n' : '') + item.content
+        }));
+      }
+    });
+  };
   async handleSubmit() {
     Logger.group("events", "Submit");
     Logger.debug("events", "Current state", this.state);
@@ -660,6 +663,7 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
             data={this.state.clipboardInspector.data}
             theme={this.props.theme}
             onClose={this.handleCloseDialog}
+            onSelect={this.handleClipboardSelection}
           />
         </Box>
         <Snackbar

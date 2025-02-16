@@ -1,47 +1,79 @@
 // ClipboardInspector.tsx
-import CloseIcon from '@mui/icons-material/Close';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import SearchIcon from '@mui/icons-material/Search';
-
+import CloseIcon from '@mui/icons-material/Close'; // Fix CloseIcon import
 import {
     Box,
     Button,
+    Checkbox,
     Dialog,
     DialogActions,
+    DialogContent,
     DialogTitle,
+    FormControlLabel,
     IconButton,
-    InputAdornment,
-    ListItem,
-    ListItemText,
-    DialogContent as MuiDialogContent,
     Paper,
-    Snackbar,
-    Table,
-    TableBody,
-    TableCell,
-    TableContainer,
-    TableHead,
-    TableRow,
-    TextField,
+    Stack,
     Typography
 } from '@mui/material';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Theme } from 'streamlit-component-lib';
 import { Logger } from '../utils/logger';
 
+// Use the content types in type checking
+export const CONTENT_TYPE_GROUPS = {
+    IMAGE: 'image/',
+    TEXT: 'text/plain',
+    HTML: 'text/html'
+} as const;
+
+export interface ClipboardItem {
+    id: string;
+    kind: string;
+    type: string;
+    as_file: File | null;
+    content?: string | ArrayBuffer | null;
+}
+
 export interface ClipboardInspectorData {
     type: string;
-    types?: string[];
-    items?: {
-        kind: string;
-        type: string;
-        as_file: File | null;
-    }[];
-    files?: {
-        name: string;
-        type: string;
-        size: number;
-    }[];
+    items?: ClipboardItem[];
+}
+
+export function inspectClipboard(e: ClipboardEvent): ClipboardInspectorData[] {
+    Logger.debug("events", "Inspecting clipboard event", e);
+    const data: ClipboardInspectorData[] = [];
+    const clipboardData = e.clipboardData;
+
+    if (clipboardData) {
+        const items = Array.from(clipboardData.items || []).map((item, index) => {
+            const itemData: ClipboardItem = {
+                id: `clip-${index}`,
+                kind: item.kind,
+                type: item.type,
+                as_file: item.kind === 'file' ? item.getAsFile() : null,
+                content: null
+            };
+
+            // Get content based on type
+            if (item.type === CONTENT_TYPE_GROUPS.TEXT || item.type === CONTENT_TYPE_GROUPS.HTML) {
+                itemData.content = clipboardData.getData(item.type);
+            }
+
+            return itemData;
+        });
+
+        const uniqueItems = items.filter(item =>
+            item.content !== null || item.as_file !== null
+        );
+
+        if (uniqueItems.length > 0) {
+            data.push({
+                type: 'clipboard',
+                items: uniqueItems
+            });
+        }
+    }
+
+    return data;
 }
 
 interface ClipboardInspectorProps {
@@ -49,226 +81,145 @@ interface ClipboardInspectorProps {
     data: ClipboardInspectorData[];
     theme?: Theme;
     onClose: () => void;
+    onSelect: (selectedItems: ClipboardItem[]) => void;
 }
-
-export function inspectClipboard(e: ClipboardEvent): ClipboardInspectorData[] {
-    Logger.debug("events", "Inspecting clipboard event", e);
-
-    const data: ClipboardInspectorData[] = [];
-    const clipboardData = e.clipboardData;
-
-    if (clipboardData) {
-        const entry = {
-            type: 'clipboard',
-            types: Array.from(clipboardData.types || []),
-            items: Array.from(clipboardData.items || []).map(item => ({
-                kind: item.kind,
-                type: item.type,
-                as_file: item.kind === 'file' ? item.getAsFile() : null
-            })),
-            files: Array.from(clipboardData.files || []).map(file => ({
-                name: file.name,
-                type: file.type,
-                size: file.size
-            }))
-        };
-
-        data.push(entry);
-        Logger.debug("events", "Clipboard data collected:", entry);
-    }
-
-    return data;
-};
 
 export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
     open,
     data,
-    theme,
-    onClose
+    onClose,
+    onSelect
 }) => {
-    const [searchTerm, setSearchTerm] = useState('');
-    const [snackbar, setSnackbar] = useState({ open: false, message: '' });
+    const [selectedItems, setSelectedItems] = useState<Record<string, boolean>>({});
+    const [selectAll, setSelectAll] = useState(false);
 
-    useEffect(() => {
-        if (!open) {
-            setSearchTerm('');
+    const handleSelectAll = (checked: boolean) => {
+        setSelectAll(checked);
+        const newSelected: Record<string, boolean> = {};
+        data.forEach(group => {
+            group.items?.forEach(item => {
+                newSelected[item.id] = checked;
+            });
+        });
+        setSelectedItems(newSelected);
+    };
+
+    const handleSelectItem = (itemId: string, checked: boolean) => {
+        setSelectedItems(prev => ({
+            ...prev,
+            [itemId]: checked
+        }));
+    };
+
+    const handleConfirm = () => {
+        const selected = data.flatMap(group =>
+            group.items?.filter(item => selectedItems[item.id]) || []
+        );
+        onSelect(selected);
+        onClose();
+    };
+
+    const renderContentPreview = (item: ClipboardItem) => {
+        if (item.type.startsWith(CONTENT_TYPE_GROUPS.IMAGE) && item.as_file) {
+            return (
+                <Box sx={{ maxHeight: 200, overflow: 'hidden' }}>
+                    <img
+                        src={URL.createObjectURL(item.as_file)}
+                        alt={item.as_file.name}
+                        style={{ maxWidth: '100%', maxHeight: 200, objectFit: 'contain' }}
+                        onLoad={(e) => URL.revokeObjectURL((e.target as HTMLImageElement).src)}
+                    />
+                </Box>
+            );
         }
-    }, [open]);
-    // Handle escape key
-    useEffect(() => {
-        const handleEscape = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onClose();
-        };
-        document.addEventListener('keydown', handleEscape);
-        return () => document.removeEventListener('keydown', handleEscape);
-    }, [onClose]);
 
-    // Copy content to clipboard
-    const handleCopy = useCallback(async (content: string) => {
-        try {
-            await navigator.clipboard.writeText(content);
-            setSnackbar({ open: true, message: 'Copied to clipboard!' });
-        } catch (err) {
-            setSnackbar({ open: true, message: 'Failed to copy to clipboard' });
+        if (item.content) {
+            return (
+                <Box
+                    sx={{
+                        maxHeight: 200,
+                        overflow: 'auto',
+                        p: 1,
+                        bgcolor: 'background.paper',
+                        borderRadius: 1,
+                        whiteSpace: 'pre-wrap',
+                        fontFamily: 'monospace'
+                    }}
+                >
+                    {item.content.toString()}
+                </Box>
+            );
         }
-    }, []);
 
-    // Filter data based on search term
-    const filterData = useCallback((content: string) => {
-        return searchTerm ?
-            content.toLowerCase().includes(searchTerm.toLowerCase()) :
-            true;
-    }, [searchTerm]);
+        return null;
+    };
 
     return (
-        <>
-            <Dialog
-                open={open}
-                onClose={onClose}
-                maxWidth="lg"
-                fullWidth
-                sx={{
-                    position: 'fixed',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    zIndex: 9999,
-                    '& .MuiDialog-paper': {
-                        width: '90vw',
-                        maxWidth: '1200px',
-                        height: '90vh',
-                        maxHeight: '900px',
-                        m: 2,
-                        display: 'flex',
-                        flexDirection: 'column'
-                    }
-                }}
-            >
-                <DialogTitle>
-                    Clipboard Inspector
-                    <IconButton
-                        aria-label="close"
-                        onClick={onClose}
-                        sx={{
-                            position: 'absolute',
-                            right: 8,
-                            top: 8,
-                            color: theme?.textColor
-                        }}
-                    >
-                        <CloseIcon />
-                    </IconButton>
-                </DialogTitle>
+        <Dialog
+            open={open}
+            onClose={onClose}
+            maxWidth="md"
+            fullWidth
+        >
+            <DialogTitle sx={{ pb: 1 }}>
+                Select Content to Include
+                <IconButton
+                    onClick={onClose}
+                    sx={{ position: 'absolute', right: 8, top: 8 }}
+                >
+                    <CloseIcon />
+                </IconButton>
+            </DialogTitle>
 
-                <Box sx={{ px: 3, pb: 2 }}>
-                    <TextField
-                        fullWidth
-                        placeholder="Search clipboard contents..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        sx={{
-                            '& .MuiInputBase-root': {
-                                paddingLeft: 1
-                            }
-                        }}
-                        InputProps={{
-                            startAdornment: (
-                                <InputAdornment position="start">
-                                    <SearchIcon />
-                                </InputAdornment>
-                            )
-                        } as any}
+            <DialogContent>
+                <Box sx={{ mb: 2 }}>
+                    <FormControlLabel
+                        control={
+                            <Checkbox
+                                checked={selectAll}
+                                onChange={(e) => handleSelectAll(e.target.checked)}
+                            />
+                        }
+                        label="Select All"
                     />
                 </Box>
 
-                <MuiDialogContent sx={{ flex: 1, overflow: 'auto' }}>
-                    {data.map((clipData, index) => (
-                        <Box key={index} sx={{ mb: 2 }}>
+                <Stack spacing={2}>
+                    {data.map((group, groupIdx) => (
+                        <Paper key={groupIdx} variant="outlined" sx={{ p: 2 }}>
                             <Typography variant="h6" gutterBottom>
-                                Data Transfer: {clipData.type}
+                                {group.type}
                             </Typography>
 
-                            {clipData.types?.filter(filterData).map((type, idx) => (
-                                <ListItem key={idx}>
-                                    <ListItemText
-                                        primary={type}
-                                        sx={{
-                                            '& .MuiListItemText-primary': {
-                                                fontFamily: 'monospace'
-                                            }
-                                        }}
+                            {group.items?.map((item) => (
+                                <Box key={item.id} sx={{ mb: 2 }}>
+                                    <FormControlLabel
+                                        control={
+                                            <Checkbox
+                                                checked={selectedItems[item.id] || false}
+                                                onChange={(e) => handleSelectItem(item.id, e.target.checked)}
+                                            />
+                                        }
+                                        label={item.type}
                                     />
-                                    <IconButton
-                                        size="small"
-                                        onClick={() => handleCopy(type)}
-                                    >
-                                        <ContentCopyIcon fontSize="small" />
-                                    </IconButton>
-                                </ListItem>
+                                    {renderContentPreview(item)}
+                                </Box>
                             ))}
-
-                            {/* Render items */}
-                            {clipData.items && clipData.items.length > 0 && (
-                                <TableContainer component={Paper} variant="outlined" sx={{ mt: 2 }}>
-                                    <Table size="small">
-                                        <TableHead>
-                                            <TableRow>
-                                                <TableCell>Kind</TableCell>
-                                                <TableCell>Type</TableCell>
-                                                <TableCell>File</TableCell>
-                                                <TableCell>Actions</TableCell>
-                                            </TableRow>
-                                        </TableHead>
-                                        <TableBody>
-                                            {clipData.items.filter(item =>
-                                                filterData(item.kind) ||
-                                                filterData(item.type) ||
-                                                (item.as_file && filterData(item.as_file.name))
-                                            ).map((item, idx) => (
-                                                <TableRow key={idx}>
-                                                    <TableCell>{item.kind}</TableCell>
-                                                    <TableCell>{item.type}</TableCell>
-                                                    <TableCell>
-                                                        {item.as_file ? item.as_file.name : 'N/A'}
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <IconButton
-                                                            size="small"
-                                                            onClick={() => handleCopy(
-                                                                item.as_file ?
-                                                                    item.as_file.name :
-                                                                    `${item.kind}:${item.type}`
-                                                            )}
-                                                        >
-                                                            <ContentCopyIcon fontSize="small" />
-                                                        </IconButton>
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))}
-                                        </TableBody>
-                                    </Table>
-                                </TableContainer>
-                            )}
-                        </Box>
+                        </Paper>
                     ))}
-                </MuiDialogContent>
+                </Stack>
+            </DialogContent>
 
-                <DialogActions sx={{ p: 2, gap: 1 }}>
-                    <Button
-                        variant="outlined"
-                        onClick={onClose}
-                    >
-                        Close
-                    </Button>
-                </DialogActions>
-            </Dialog>
-            <Snackbar
-                open={snackbar.open}
-                autoHideDuration={3000}
-                onClose={() => setSnackbar({ ...snackbar, open: false })}
-                message={snackbar.message}
-            />
-        </>
+            <DialogActions>
+                <Button onClick={onClose}>Cancel</Button>
+                <Button
+                    variant="contained"
+                    onClick={handleConfirm}
+                    disabled={Object.values(selectedItems).every(v => !v)}
+                >
+                    Add Selected
+                </Button>
+            </DialogActions>
+        </Dialog>
     );
 };
