@@ -25,7 +25,7 @@ import { State } from "./State";
 import { ChatTextField } from "./TextField";
 
 export const DIALOG_HEIGHTS = {
-  CLIPBOARD_INSPECTOR: 400,
+  CLIPBOARD_INSPECTOR: 600,
   CLIPBOARD_INSPECTOR_MAX: 900,
   BASE_PADDING: 50
 } as const;

@@ -158,21 +158,55 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
 
-        // Get selected images for this item
         const itemImages = extractedImages[itemId] || [];
         const selectedItemImages = itemImages.filter((_, idx) =>
             selectedImages[`${itemId}-${idx}`]
         );
 
-        // First convert to markdown
-        let markdown = turndownService.turndown(doc.body.innerHTML);
+        // Track which SVGs are selected
+        const selectedSvgIndices = new Set(
+            selectedItemImages
+                .map((img, idx) => img.originalUrl === 'inline-svg' ? idx : -1)
+                .filter(idx => idx !== -1)
+        );
 
-        // Add inline image placeholders for selected images
-        selectedItemImages.forEach((_, idx) => {
-            markdown = `${markdown}\n![image-${idx}][${idx}]`;
+        // Create placeholders only for selected SVGs
+        const svgPlaceholders = new Map<string, string>();
+        const svgs = doc.getElementsByTagName('svg');
+        Array.from(svgs).forEach((svg, idx) => {
+            // Only create placeholder if this SVG was selected
+            if (selectedSvgIndices.has(idx)) {
+                // Use unescaped markdown image syntax as placeholder
+                const placeholder = `![Original: Inline SVG][${idx}]`; // Removed escaping
+                svgPlaceholders.set(placeholder, svg.outerHTML);
+                svg.outerHTML = placeholder;
+            }
         });
 
-        // Add image references ONCE at the end
+        // Convert to markdown
+        let markdown = turndownService.turndown(doc.body.innerHTML);
+        markdown = markdown.replace(
+            /!\\\[Original: (?:Inline SVG|.*?)\\\]\\\[(\d+)\\\]/g,
+            (_, idx) => `![Original: Inline SVG][${idx}]`
+        );
+
+        // Replace image references (SVG placeholders already in correct format)
+        selectedItemImages.forEach((image, idx) => {
+            if (!image.originalUrl.startsWith('inline-svg')) {
+                // Handle regular images - use simpler regex without escaping
+                const imgRegex = new RegExp(
+                    `!\\[.*?\\]\\(${image.originalUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)`,
+                    'g'
+                );
+                // Use unescaped markdown syntax
+                markdown = markdown.replace(
+                    imgRegex,
+                    `![Original: ${image.originalUrl}][${idx}]`
+                );
+            }
+        });
+
+        // Add attachment references at the end
         if (selectedItemImages.length > 0) {
             markdown += '\n\n';
             selectedItemImages.forEach((_, idx) => {
