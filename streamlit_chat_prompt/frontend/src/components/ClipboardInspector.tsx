@@ -1,5 +1,8 @@
 // ClipboardInspector.tsx
 import CloseIcon from '@mui/icons-material/Close'; // Fix CloseIcon import
+import TurndownService from 'turndown';
+import { ExtractedImage, extractImagesFromHtml } from '../utils/htmlProcessing';
+
 import {
     Box,
     Button,
@@ -10,6 +13,8 @@ import {
     DialogTitle,
     FormControlLabel,
     IconButton,
+    ImageList,
+    ImageListItem,
     Paper,
     Stack,
     Typography
@@ -31,6 +36,9 @@ export interface ClipboardItem {
     type: string;
     as_file: File | null;
     content?: string | ArrayBuffer | null;
+    convertToMarkdown?: boolean;
+    extractedImages?: ExtractedImage[];
+
 }
 
 export interface ClipboardInspectorData {
@@ -90,8 +98,28 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
     onClose,
     onSelect
 }) => {
+    const [selectedImages, setSelectedImages] = useState<Record<string, boolean>>({});
+    const [extractedImages, setExtractedImages] = useState<Record<string, ExtractedImage[]>>({});
     const [selectedItems, setSelectedItems] = useState<Record<string, boolean>>({});
     const [selectAll, setSelectAll] = useState(false);
+    const [markdownConversion, setMarkdownConversion] = useState<Record<string, boolean>>({});
+    const turndownService = React.useMemo(() => new TurndownService(), []);
+
+    // Add function to generate image references for markdown
+    // const generateImageReferences = (selectedImages: ExtractedImage[]) => {
+    //     return selectedImages.map((_, idx) =>
+    //         `\n[${idx}]: attachment:${idx}`
+    //     ).join('');
+    // };
+
+    // Add this function to process HTML content
+    const processHtmlContent = async (itemId: string, html: string) => {
+        const images = await extractImagesFromHtml(html);
+        setExtractedImages(prev => ({
+            ...prev,
+            [itemId]: images
+        }));
+    };
 
     const handleSelectAll = (checked: boolean) => {
         setSelectAll(checked);
@@ -111,32 +139,181 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
         }));
     };
 
+
+    const handleMarkdownConversion = (itemId: string, checked: boolean) => {
+        setMarkdownConversion(prev => ({
+            ...prev,
+            [itemId]: checked
+        }));
+
+        // Only auto-select if enabling markdown
+        if (checked && !selectedItems[itemId]) {
+            setSelectedItems(prev => ({
+                ...prev,
+                [itemId]: true
+            }));
+        }
+    };
+    const generateMarkdownPreview = React.useMemo(() => (html: string, itemId: string) => {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+
+        // Get selected images for this item
+        const itemImages = extractedImages[itemId] || [];
+        const selectedItemImages = itemImages.filter((_, idx) =>
+            selectedImages[`${itemId}-${idx}`]
+        );
+
+        // First convert to markdown
+        let markdown = turndownService.turndown(doc.body.innerHTML);
+
+        // Add inline image placeholders for selected images
+        selectedItemImages.forEach((_, idx) => {
+            markdown = `${markdown}\n![image-${idx}][${idx}]`;
+        });
+
+        // Add image references ONCE at the end
+        if (selectedItemImages.length > 0) {
+            markdown += '\n\n';
+            selectedItemImages.forEach((_, idx) => {
+                markdown += `[${idx}]: attachment:${idx}\n`;
+            });
+        }
+
+        return markdown;
+    }, [extractedImages, selectedImages, turndownService]);
     const handleConfirm = () => {
         const selected = data.flatMap(group =>
-            group.items?.filter(item => selectedItems[item.id]) || []
+            group.items?.filter(item => selectedItems[item.id]).map(item => {
+                // Get all selected images for this item
+                let selectedItemImages: ExtractedImage[] = [];
+
+                // Handle direct image files
+                if (item.type.startsWith(CONTENT_TYPE_GROUPS.IMAGE) && item.as_file && selectedImages[`${item.id}-direct`]) {
+                    selectedItemImages.push({ file: item.as_file, originalUrl: '' });
+                }
+
+                // Handle extracted images from HTML
+                const extractedItemImages = extractedImages[item.id] || [];
+                const selectedExtractedImages = extractedItemImages.filter((_, idx) =>
+                    selectedImages[`${item.id}-${idx}`]
+                );
+                selectedItemImages = [...selectedItemImages, ...selectedExtractedImages];
+
+                if (item.type === CONTENT_TYPE_GROUPS.HTML && markdownConversion[item.id]) {
+                    // Generate markdown content ONCE and store it
+                    const markdownContent = generateMarkdownPreview(item.content?.toString() || '', item.id);
+                    Logger.debug('component', 'Generated markdown content:', markdownContent);  // Debug log
+
+                    return {
+                        ...item,
+                        content: markdownContent,  // Use the stored content
+                        convertToMarkdown: false,  // Set to false since we've already converted
+                        extractedImages: selectedItemImages
+                    };
+                }
+
+                return {
+                    ...item,
+                    extractedImages: selectedItemImages
+                };
+            }) || []
         );
+
+        Logger.debug('component', 'Selected items with images:', selected);
         onSelect(selected);
         onClose();
     };
-
     const renderContentPreview = (item: ClipboardItem) => {
+        const allImages: { file: File, id: string }[] = [];
+
+        // Add direct image if present
         if (item.type.startsWith(CONTENT_TYPE_GROUPS.IMAGE) && item.as_file) {
-            return (
-                <Box sx={{ maxHeight: 200, overflow: 'hidden' }}>
-                    <img
-                        src={URL.createObjectURL(item.as_file)}
-                        alt={item.as_file.name}
-                        style={{ maxWidth: '100%', maxHeight: 200, objectFit: 'contain' }}
-                        onLoad={(e) => URL.revokeObjectURL((e.target as HTMLImageElement).src)}
-                    />
-                </Box>
-            );
+            allImages.push({
+                file: item.as_file,
+                id: `${item.id}-direct`
+            });
         }
 
-        if (item.content) {
-            return (
-                <Box
-                    sx={{
+        // Add extracted images if present
+        const itemImages = extractedImages[item.id] || [];
+        allImages.push(...itemImages.map((img, idx) => ({
+            file: img.file,
+            id: `${item.id}-${idx}`
+        })));
+
+        return (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {/* HTML Controls */}
+                {item.type === CONTENT_TYPE_GROUPS.HTML && (
+                    <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                        <FormControlLabel
+                            control={
+                                <Checkbox
+                                    checked={markdownConversion[item.id] || false}
+                                    onChange={(e) => handleMarkdownConversion(item.id, e.target.checked)}
+                                />
+                            }
+                            label="Convert to Markdown"  // Changed this label to be consistent
+                        />
+                        <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => processHtmlContent(item.id, item.content?.toString() || '')}
+                        >
+                            Extract Images
+                        </Button>
+                    </Box>
+                )}
+
+                {/* Images Section */}
+                {allImages.length > 0 && (
+                    <Box sx={{ mt: 1 }}>
+                        <Typography variant="subtitle2">
+                            {item.type.startsWith(CONTENT_TYPE_GROUPS.IMAGE) ? 'Image:' : 'Extracted Images:'}
+                        </Typography>
+                        <ImageList sx={{ maxHeight: 120 }} cols={4} rowHeight={80}>
+                            {allImages.map(({ file, id }) => (
+                                <ImageListItem key={id} sx={{ position: 'relative' }}>
+                                    <FormControlLabel
+                                        control={
+                                            <Checkbox
+                                                size="small"
+                                                checked={selectedImages[id] || false}
+                                                onChange={(e) => setSelectedImages(prev => ({
+                                                    ...prev,
+                                                    [id]: e.target.checked
+                                                }))}
+                                            />
+                                        }
+                                        label=""
+                                        sx={{
+                                            position: 'absolute',
+                                            top: 0,
+                                            right: 0,
+                                            zIndex: 1,
+                                            m: 0 // Remove margin
+                                        }}
+                                    />
+                                    <img
+                                        src={URL.createObjectURL(file)}
+                                        alt={`${id}`}
+                                        style={{
+                                            objectFit: 'cover',
+                                            height: '80px',
+                                            width: '100%'
+                                        }}
+                                        onLoad={(e) => URL.revokeObjectURL((e.target as HTMLImageElement).src)}
+                                    />
+                                </ImageListItem>
+                            ))}
+                        </ImageList>
+                    </Box>
+                )}
+
+                {/* Text Content */}
+                {item.content && (
+                    <Box sx={{
                         maxHeight: 200,
                         overflow: 'auto',
                         p: 1,
@@ -144,16 +321,15 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                         borderRadius: 1,
                         whiteSpace: 'pre-wrap',
                         fontFamily: 'monospace'
-                    }}
-                >
-                    {item.content.toString()}
-                </Box>
-            );
-        }
-
-        return null;
+                    }}>
+                        {markdownConversion[item.id]
+                            ? generateMarkdownPreview(item.content.toString(), item.id)
+                            : item.content.toString()}
+                    </Box>
+                )}
+            </Box>
+        );
     };
-
     return (
         <Dialog
             open={open}
@@ -200,7 +376,11 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                                                 onChange={(e) => handleSelectItem(item.id, e.target.checked)}
                                             />
                                         }
-                                        label={item.type}
+                                        label={
+                                            item.type === CONTENT_TYPE_GROUPS.HTML
+                                                ? (markdownConversion[item.id] ? 'text/markdown' : 'text/html')
+                                                : item.type
+                                        }
                                     />
                                     {renderContentPreview(item)}
                                 </Box>

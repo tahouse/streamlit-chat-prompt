@@ -14,6 +14,7 @@ import {
   Streamlit,
   StreamlitComponentBase
 } from "streamlit-component-lib";
+
 import { checkFileSize, processImage } from "../utils/images";
 import { Logger } from "../utils/logger";
 import { generateUUID } from "../utils/uuid";
@@ -442,13 +443,40 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
       setTimeout(() => this.updateFrameHeight(), 100); // Changed from Streamlit.setFrameHeight()
     });
   };
+  // In ChatInput.tsx
   private handleClipboardSelection = (selectedItems: ClipboardItem[]) => {
     selectedItems.forEach(async item => {
       if (item.type.startsWith('image/') && item.as_file) {
         await this.processAndAddImage(item.as_file);
-      } else if (item.type === 'text/plain' && item.content) {
+      } else if (item.content) {
+        let textContent = item.content.toString();
+
+        // Handle extracted images if present
+        if (item.extractedImages?.length) {
+          // Process all selected images
+          for (const img of item.extractedImages) {
+            await this.processAndAddImage(img.file);
+          }
+
+          // If content is markdown, replace placeholders with markdown image syntax
+          if (item.convertToMarkdown) {
+            item.extractedImages.forEach((img, idx) => {
+              const placeholder = `[embedded-image-${idx}]`;
+              const markdownImage = `![image-${idx}][${idx}]`;
+              textContent = textContent.replace(placeholder, markdownImage);
+            });
+
+            // Add image references at the end
+            textContent += '\n\n';
+            item.extractedImages.forEach((_, idx) => {
+              textContent += `[${idx}]: attachment:${idx}\n`;
+            });
+          }
+        }
+
         this.setState(prev => ({
-          text: prev.text + (prev.text ? '\n' : '') + item.content
+          text: prev.text + (prev.text ? '\n' : '') + textContent,
+          userHasInteracted: true
         }));
       }
     });
