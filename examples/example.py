@@ -46,7 +46,7 @@ with st.sidebar:
     if st.button(
         "Dialog Prompt with Default Value", key=f"dialog_prompt_with_default_button"
     ):
-        with open("example_images/vangogh.png", "rb") as f:
+        with open("../example_images/vangogh.png", "rb") as f:
             image_data = f.read()
             image = Image.open(BytesIO(image_data))
             base64_image = base64.b64encode(image_data).decode("utf-8")
@@ -88,6 +88,7 @@ prompt_return: PromptReturn | None = prompt(
     key="chat_prompt",
     placeholder="Hi there! What should we chat about?",
     main_bottom=True,
+    log_level="debug",
 )
 
 if prompt_return:
