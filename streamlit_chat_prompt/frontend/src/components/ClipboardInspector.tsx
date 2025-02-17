@@ -19,10 +19,16 @@ import {
     Stack,
     Typography
 } from '@mui/material';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Theme } from 'streamlit-component-lib';
 import { Logger } from '../utils/logger';
 
+export const DIALOG_HEIGHTS = {
+    CLIPBOARD_INSPECTOR: 600,
+    CLIPBOARD_INSPECTOR_MAX: 900,
+    DIALOG_CONTENT: 500,
+    BASE_PADDING: 50
+} as const;
 // Use the content types in type checking
 export const CONTENT_TYPE_GROUPS = {
     IMAGE: 'image/',
@@ -105,12 +111,18 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
     const [markdownConversion, setMarkdownConversion] = useState<Record<string, boolean>>({});
     const turndownService = React.useMemo(() => new TurndownService(), []);
 
-    // Add function to generate image references for markdown
-    // const generateImageReferences = (selectedImages: ExtractedImage[]) => {
-    //     return selectedImages.map((_, idx) =>
-    //         `\n[${idx}]: attachment:${idx}`
-    //     ).join('');
-    // };
+    // Reset all state when dialog closes
+    useEffect(() => {
+        if (!open) {
+            // Reset all state
+            setSelectedImages({});
+            setExtractedImages({});
+            setSelectedItems({});
+            setSelectAll(false);
+            setMarkdownConversion({});
+        }
+    }, [open]);
+
 
     // Add this function to process HTML content
     const processHtmlContent = async (itemId: string, html: string) => {
@@ -154,6 +166,8 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             }));
         }
     };
+
+
     const generateMarkdownPreview = React.useMemo(() => (html: string, itemId: string) => {
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
@@ -216,6 +230,8 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
 
         return markdown;
     }, [extractedImages, selectedImages, turndownService]);
+
+
     const handleConfirm = () => {
         const selected = data.flatMap(group =>
             group.items?.filter(item => selectedItems[item.id]).map(item => {
@@ -257,7 +273,16 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
         Logger.debug('component', 'Selected items with images:', selected);
         onSelect(selected);
         onClose();
+
+        setTimeout(() => {
+            setSelectedImages({});
+            setExtractedImages({});
+            setSelectedItems({});
+            setSelectAll(false);
+            setMarkdownConversion({});
+        }, 100);
     };
+
     const renderContentPreview = (item: ClipboardItem) => {
         const allImages: { file: File, id: string }[] = [];
 
@@ -370,8 +395,21 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             onClose={onClose}
             maxWidth="md"
             fullWidth
+            PaperProps={{
+                sx: {
+                    maxHeight: DIALOG_HEIGHTS.CLIPBOARD_INSPECTOR_MAX,
+                    height: DIALOG_HEIGHTS.CLIPBOARD_INSPECTOR,
+                    margin: '16px', // Add margin around the dialog
+                    width: 'calc(100% - 32px)', // Adjust width to account for margins
+                    position: 'relative', // Ensure proper positioning
+                    overflow: 'hidden' // Prevent content overflow
+                }
+            }}
         >
-            <DialogTitle sx={{ pb: 1 }}>
+            <DialogTitle sx={{
+                pb: 1, px: 3, // Increase horizontal padding
+                pt: 2 // Increase top padding
+            }}>
                 Select Content to Include
                 <IconButton
                     onClick={onClose}
@@ -381,8 +419,12 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                 </IconButton>
             </DialogTitle>
 
-            <DialogContent>
-                <Box sx={{ mb: 2 }}>
+            <DialogContent sx={{
+                height: DIALOG_HEIGHTS.DIALOG_CONTENT, overflowY: 'auto',
+                px: 3, // Increase horizontal padding
+                pb: 3  // Increase bottom padding
+            }}>
+                <Box sx={{ mb: 2 }}> {/* Remove height, just add margin bottom */}
                     <FormControlLabel
                         control={
                             <Checkbox
@@ -424,7 +466,10 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                 </Stack>
             </DialogContent>
 
-            <DialogActions>
+            <DialogActions sx={{
+                px: 3, // Increase horizontal padding
+                pb: 2  // Increase bottom padding
+            }}>
                 <Button onClick={onClose}>Cancel</Button>
                 <Button
                     variant="contained"
@@ -434,6 +479,6 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                     Add Selected
                 </Button>
             </DialogActions>
-        </Dialog>
+        </Dialog >
     );
 };

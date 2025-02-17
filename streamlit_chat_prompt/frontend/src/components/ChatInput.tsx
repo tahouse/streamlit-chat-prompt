@@ -18,21 +18,15 @@ import {
 import { checkFileSize, processImage } from "../utils/images";
 import { Logger } from "../utils/logger";
 import { generateUUID } from "../utils/uuid";
-import { ClipboardInspector, ClipboardItem, inspectClipboard } from "./ClipboardInspector";
+import { ClipboardInspector, ClipboardItem, DIALOG_HEIGHTS, inspectClipboard } from "./ClipboardInspector";
 import { PromptData } from "./PromptData";
 import { Props } from "./Props";
 import { State } from "./State";
 import { ChatTextField } from "./TextField";
 
-export const DIALOG_HEIGHTS = {
-  CLIPBOARD_INSPECTOR: 600,
-  CLIPBOARD_INSPECTOR_MAX: 900,
-  BASE_PADDING: 50
-} as const;
 export class ChatInput extends StreamlitComponentBase<State, Props> {
   private fileInputRef: React.RefObject<HTMLInputElement>;
   private textFieldRef: React.RefObject<HTMLInputElement>;
-  // private handlePasteEvent: (e: ClipboardEvent) => void;
   private maxImageSize: number;
   private isShowingDialog: boolean = false;
 
@@ -214,23 +208,53 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
       }
 
       timeoutId = setTimeout(() => {
-        const newHeight = height || (() => {
-          const element = document.querySelector('.main-content') as HTMLElement;
-          if (element) {
-            // Add extra padding for clipboard inspector if open
-            const baseHeight = element.getBoundingClientRect().height;
-            const extraHeight = this.state.clipboardInspector.open ? DIALOG_HEIGHTS.CLIPBOARD_INSPECTOR : 0;
-            return Math.max(baseHeight, extraHeight) + 50;
+        // If explicit height is provided, use it directly
+        if (height) {
+          if (height !== lastHeight) {
+            lastHeight = height;
+            Streamlit.setFrameHeight(height);
           }
-          return undefined;
-        })();
+          return;
+        }
 
-        // Only update if height has changed
-        if (newHeight && newHeight !== lastHeight) {
+        // Calculate new height based on current state
+        const element = document.querySelector('.main-content') as HTMLElement;
+        if (!element) return;
+
+        let newHeight: number;
+
+        if (this.state.clipboardInspector.open) {
+          // When dialog is open, use fixed dialog height only
+          newHeight = DIALOG_HEIGHTS.CLIPBOARD_INSPECTOR;
+        } else {
+          // Calculate content height
+          const textField = element.querySelector('.MuiBox-root') as HTMLElement;
+          const imageList = element.querySelector('.MuiImageList-root') as HTMLElement;
+
+          let contentHeight = 0;
+
+          // Add text field height (with max)
+          if (textField) {
+            contentHeight = Math.min(
+              textField.scrollHeight,
+              300 // max height for text field
+            );
+          }
+
+          // Add image list height if present
+          if (imageList) {
+            contentHeight += imageList.offsetHeight + 8; // 8px for margin
+          }
+
+          // Add base padding
+          newHeight = contentHeight + DIALOG_HEIGHTS.BASE_PADDING;
+        }
+
+        if (newHeight !== lastHeight) {
           lastHeight = newHeight;
           Streamlit.setFrameHeight(newHeight);
         }
-      }, 100); // Increased debounce time
+      }, 100);
     };
   })();
 
@@ -542,7 +566,16 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
     Logger.debug("events", "Prompt render", this.props.args, this.state);
 
     return (
-      <Box className="main-content">
+      <Box className="main-content"
+        sx={{
+          position: 'relative',
+          height: this.state.clipboardInspector.open ?
+            `${DIALOG_HEIGHTS.CLIPBOARD_INSPECTOR + 32}px` : // Add 32px (16px top + 16px bottom) for margins
+            'auto',
+          // display: 'flex',
+          // alignItems: 'center',
+          // justifyContent: 'center'
+        }}>
         <Paper
           elevation={0}
           sx={{
@@ -553,7 +586,7 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
             backgroundColor: theme?.backgroundColor,
             color: theme?.textColor,
             fontFamily: theme?.font,
-            p: 1,
+            p: this.state.clipboardInspector.open ? 1 : 0,
             // opacity: disabled ? 0.6 : 1, // Use consistent opacity for disabled state
             transition: "opacity 0.2s ease", // Smooth transition when disabled state changes
             cursor: disabled ? "not-allowed" : "default",
@@ -563,6 +596,9 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
               // Apply to all children
               cursor: disabled ? "not-allowed" : "inherit",
             },
+            opacity: this.state.clipboardInspector.open ? 0 : 1,
+            visibility: this.state.clipboardInspector.open ? 'hidden' : 'visible',
+
           }}
         >
           {this.state.images.length > 0 && (
@@ -685,15 +721,14 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
             </Box>
           </Box>
         </Paper>
-        <Box sx={{ position: 'relative', minHeight: this.state.clipboardInspector.open ? `${DIALOG_HEIGHTS.CLIPBOARD_INSPECTOR}px` : 'auto' }}>
-          <ClipboardInspector
-            open={this.state.clipboardInspector.open}
-            data={this.state.clipboardInspector.data}
-            theme={this.props.theme}
-            onClose={this.handleCloseDialog}
-            onSelect={this.handleClipboardSelection}
-          />
-        </Box>
+
+        <ClipboardInspector
+          open={this.state.clipboardInspector.open}
+          data={this.state.clipboardInspector.data}
+          theme={this.props.theme}
+          onClose={this.handleCloseDialog}
+          onSelect={this.handleClipboardSelection}
+        />
         <Snackbar
           open={this.state.notification.open}
           autoHideDuration={6000}
