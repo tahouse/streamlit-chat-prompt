@@ -6,6 +6,108 @@ export interface ExtractedImage {
     originalUrl: string;
     error?: string;
 }
+export function decodeHtmlEntities(html: string): string {
+    const textarea = document.createElement('textarea');
+    textarea.innerHTML = html;
+    return textarea.value;
+}
+export function isCodeBlock(element: Element): boolean {
+    if (!(element instanceof HTMLElement)) return false;
+
+    // Get computed or inline styles
+    const fontFamily = element.style.fontFamily || window.getComputedStyle(element).fontFamily;
+    const whiteSpace = element.style.whiteSpace || window.getComputedStyle(element).whiteSpace;
+
+    // Check for common code editor fonts and pre-formatted text indicators
+    const isMonospace = /(monospace|menlo|monaco|consolas|courier|source code)/i.test(fontFamily);
+    const isPreFormatted = whiteSpace === 'pre' || element.tagName === 'PRE' || element.tagName === 'CODE';
+
+    Logger.debug("component", "Code block check:", {
+        element: element.tagName,
+        fontFamily,
+        whiteSpace,
+        isMonospace,
+        isPreFormatted
+    });
+
+    return isMonospace && isPreFormatted;
+}
+
+export function extractCodeBlocks(html: string): { code: string, language?: string }[] {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const codeBlocks: { code: string, language?: string }[] = [];
+
+    // Function to process potential code elements
+    function processElement(element: Element) {
+        // Skip body element itself
+        if (element.tagName === 'BODY') {
+            Array.from(element.children).forEach(processElement);
+            return;
+        }
+
+        if (isCodeBlock(element)) {
+            Logger.debug("component", "Found code block:", {
+                element: element.tagName,
+                classes: element.className,
+                style: element.getAttribute('style')
+            });
+
+            // Try to detect language from class names or data attributes
+            let language: string | undefined;
+            const classes = element.className.split(' ');
+            const langClass = classes.find(c => c.startsWith('language-'));
+            if (langClass) {
+                language = langClass.replace('language-', '');
+            }
+
+            // For VS Code style syntax highlighting, try to detect language from content
+            if (!language && element.innerHTML.includes('class="')) {
+                // Look for typical VS Code syntax highlighting classes
+                if (element.innerHTML.includes('keyword') ||
+                    element.innerHTML.includes('function') ||
+                    element.innerHTML.includes('operator')) {
+                    // Check for specific language indicators
+                    if (element.innerHTML.includes('def ') || element.innerHTML.includes('class ')) {
+                        language = 'python';
+                    } else if (element.innerHTML.includes('function ')) {
+                        language = 'javascript';
+                    }
+                }
+            }
+
+            // Clean up the code text
+            const code = element.textContent || '';
+            // Preserve syntax highlighting if present in the original HTML
+            const originalHtml = element.innerHTML;
+
+            codeBlocks.push({
+                code: originalHtml.includes('style="color:') ? originalHtml : code,
+                language
+            });
+
+            // Replace the code block with a placeholder
+            const placeholder = document.createElement('p');
+            placeholder.textContent = `[code-block-${codeBlocks.length - 1}]`;
+            element.replaceWith(placeholder);
+
+            // Don't process children of code blocks
+            return;
+        }
+
+        // Recursively check children
+        Array.from(element.children).forEach(processElement);
+    }
+
+    // Process the document
+    processElement(doc.body);
+
+    Logger.debug("component", "Extracted code blocks:", codeBlocks);
+
+    return codeBlocks;
+}
+
+
 export async function extractImagesFromHtml(html: string): Promise<ExtractedImage[]> {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');

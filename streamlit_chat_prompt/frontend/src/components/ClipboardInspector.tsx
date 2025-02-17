@@ -1,7 +1,7 @@
 // ClipboardInspector.tsx
 import CloseIcon from '@mui/icons-material/Close'; // Fix CloseIcon import
 import TurndownService from 'turndown';
-import { ExtractedImage, extractImagesFromHtml } from '../utils/htmlProcessing';
+import { decodeHtmlEntities, extractCodeBlocks, ExtractedImage, extractImagesFromHtml } from '../utils/htmlProcessing';
 
 import {
     Box,
@@ -169,66 +169,163 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
 
 
     const generateMarkdownPreview = React.useMemo(() => (html: string, itemId: string) => {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
+        Logger.info('component', 'Starting markdown preview generation for HTML:', {
+            itemId,
+            htmlLength: html.length
+        });
 
+        // Step 1: Extract code blocks and replace with placeholders
+        const codeBlocks = extractCodeBlocks(html);
+
+        Logger.info('component', 'Extracted code blocks:', codeBlocks.map((block, index) => ({
+            index,
+            placeholder: `CODEBLOCK_PLACEHOLDER_${index}_ENDPLACEHOLDER`,
+            language: block.language,
+            codePreview: block.code.substring(0, 100) + '...',
+            fullLength: block.code.length
+        })));
+
+        let workingHtml = html;
+
+        // Create temporary placeholders for code blocks
+        codeBlocks.forEach((block, index) => {
+            const placeholder = `[CODEBLOCK${index}]`;  // Simpler placeholder
+            workingHtml = workingHtml.replace(block.code, placeholder);
+        });
+
+        // Step 2: Convert remaining HTML to markdown
+        const markdown = turndownService.turndown(workingHtml);
+        Logger.info('component', 'After markdown conversion:', {
+            markdown: markdown.substring(0, 200) + '...',
+            containsPlaceholders: codeBlocks.map((_, index) => ({
+                placeholder: `CODEBLOCK_PLACEHOLDER_${index}_ENDPLACEHOLDER`,
+                found: markdown.includes(`CODEBLOCK_PLACEHOLDER_${index}_ENDPLACEHOLDER`)
+            }))
+        });
+
+        Logger.info('component', 'Intermediate markdown:', {
+            markdown,
+            codeBlocks: codeBlocks.length
+        });
+
+
+        // Step 3: Replace placeholders with properly formatted code blocks
+        let finalMarkdown = markdown;
+        codeBlocks.forEach((block, index) => {
+            const placeholder = `[CODEBLOCK${index}]`;
+
+            // Clean up the code content while preserving line breaks
+            let codeContent = block.code;
+            if (block.code.includes('style="color:')) {
+                // Create a temporary container
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = block.code;
+
+                // Use textContent but preserve line breaks
+                codeContent = tempDiv.innerHTML
+                    .replace(/<br\s*\/?>/gi, '\n') // Replace <br> with newline
+                    .replace(/<div>/gi, '\n')      // Replace div starts with newline
+                    .replace(/<\/div>/gi, '')      // Remove div ends
+                    .replace(/<p>/gi, '\n')        // Replace p starts with newline
+                    .replace(/<\/p>/gi, '\n')      // Replace p ends with newline
+                    .replace(/<[^>]+>/g, '');      // Remove any other HTML tags
+
+                // Decode HTML entities
+                codeContent = decodeHtmlEntities(codeContent);
+
+                // Normalize line endings and remove extra blank lines
+                codeContent = codeContent
+                    .replace(/\r\n/g, '\n')        // Normalize line endings
+                    .replace(/\n\s*\n\s*\n/g, '\n\n') // Remove extra blank lines
+                    .trim();
+            }
+
+            // Format as markdown code block, ensuring proper line breaks
+            const formattedCodeBlock = [
+                '',                              // Empty line before code block
+                '```' + (block.language || 'python'), // Default to python
+                codeContent,                     // Keep original line breaks
+                '```',
+                ''                              // Empty line after code block
+            ].join('\n');
+
+            Logger.info('component', `Processing code block ${index}:`, {
+                placeholder,
+                originalContent: codeContent.substring(0, 100) + '...',
+                formattedBlock: formattedCodeBlock.substring(0, 100) + '...',
+                markdownBefore: finalMarkdown.substring(0, 100) + '...',
+                placeholderInMarkdown: finalMarkdown.includes(placeholder),
+                containsSpecialChars: {
+                    gt: codeContent.includes('>'),
+                    lt: codeContent.includes('<'),
+                    amp: codeContent.includes('&'),
+                    encoded: {
+                        gt: codeContent.includes('&gt;'),
+                        lt: codeContent.includes('&lt;'),
+                        amp: codeContent.includes('&amp;')
+                    }
+                }
+            });
+
+            // Simple string replacement should work now
+            finalMarkdown = finalMarkdown.replace(placeholder, formattedCodeBlock);
+
+            // Also try with escaped placeholder just in case
+            const escapedPlaceholder = placeholder.replace(/[\[\]]/g, '\\$&');
+            finalMarkdown = finalMarkdown.replace(escapedPlaceholder, formattedCodeBlock);
+
+            Logger.info('component', `After replacement for block ${index}:`, {
+                success: !finalMarkdown.includes(placeholder),
+                markdownPreview: finalMarkdown.substring(0, 100) + '...'
+            });
+        });
+
+
+
+        // After all replacements
+        const remainingPlaceholders = finalMarkdown.match(/\[CODEBLOCK\d+\]/g);
+        Logger.info('component', 'Final check:', {
+            remainingPlaceholders,
+            finalMarkdownPreview: finalMarkdown.substring(0, 200) + '...',
+            totalLength: finalMarkdown.length
+        });
+        if (remainingPlaceholders) {
+            Logger.warn('component', 'Remaining placeholders:', remainingPlaceholders);
+        }
+
+        // Handle images
         const itemImages = extractedImages[itemId] || [];
         const selectedItemImages = itemImages.filter((_, idx) =>
             selectedImages[`${itemId}-${idx}`]
         );
 
-        // Track which SVGs are selected
-        const selectedSvgIndices = new Set(
-            selectedItemImages
-                .map((img, idx) => img.originalUrl === 'inline-svg' ? idx : -1)
-                .filter(idx => idx !== -1)
-        );
-
-        // Create placeholders only for selected SVGs
-        const svgPlaceholders = new Map<string, string>();
-        const svgs = doc.getElementsByTagName('svg');
-        Array.from(svgs).forEach((svg, idx) => {
-            // Only create placeholder if this SVG was selected
-            if (selectedSvgIndices.has(idx)) {
-                // Use unescaped markdown image syntax as placeholder
-                const placeholder = `![Original: Inline SVG][${idx}]`; // Removed escaping
-                svgPlaceholders.set(placeholder, svg.outerHTML);
-                svg.outerHTML = placeholder;
-            }
-        });
-
-        // Convert to markdown
-        let markdown = turndownService.turndown(doc.body.innerHTML);
-        markdown = markdown.replace(
-            /!\\\[Original: (?:Inline SVG|.*?)\\\]\\\[(\d+)\\\]/g,
-            (_, idx) => `![Original: Inline SVG][${idx}]`
-        );
-
-        // Replace image references (SVG placeholders already in correct format)
         selectedItemImages.forEach((image, idx) => {
             if (!image.originalUrl.startsWith('inline-svg')) {
-                // Handle regular images - use simpler regex without escaping
                 const imgRegex = new RegExp(
                     `!\\[.*?\\]\\(${image.originalUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)`,
                     'g'
                 );
-                // Use unescaped markdown syntax
-                markdown = markdown.replace(
+                finalMarkdown = finalMarkdown.replace(
                     imgRegex,
                     `![Original: ${image.originalUrl}][${idx}]`
                 );
             }
         });
 
-        // Add attachment references at the end
+        // Add image references if needed
         if (selectedItemImages.length > 0) {
-            markdown += '\n\n';
+            finalMarkdown += '\n\n';
             selectedItemImages.forEach((_, idx) => {
-                markdown += `[${idx}]: attachment:${idx}\n`;
+                finalMarkdown += `[${idx}]: attachment:${idx}\n`;
             });
         }
 
-        return markdown;
+        Logger.info('component', 'Final markdown:', {
+            length: finalMarkdown.length,
+            preview: finalMarkdown.substring(0, 100) + '...'
+        });
+
+        return finalMarkdown;
     }, [extractedImages, selectedImages, turndownService]);
 
 
