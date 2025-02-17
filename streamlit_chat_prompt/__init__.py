@@ -122,6 +122,7 @@ def prompt(
     max_image_size: int = 5 * 1024 * 1024,  # 5MB
     disabled: bool = False,
     log_level: str = "warn",
+    enable_clipboard_inspector: bool = False,
 ) -> Optional[PromptReturn]:
     """Create a chat-like prompt input at the bottom of the page.
 
@@ -135,6 +136,7 @@ def prompt(
         max_image_size (int, optional): Maximum size of uploaded images in bytes. Defaults to 5MB.
         disabled (bool, optional): Whether the prompt input is disabled. Defaults to False.
         log_level (str, optional): Logging level for the component. Defaults to "warn".
+        enable_clipboard_inspector (bool, optional): Whether to enable clipboard inspector. Defaults to False.
 
     Returns:
         Optional[PromptReturn]: Returns a PromptReturn object containing the text
@@ -193,6 +195,7 @@ def prompt(
         disabled=disabled,
         max_image_size=max_image_size,
         debug=log_level,
+        clipboard_inspector_enabled=enable_clipboard_inspector,
     )
     logger.debug(f"prompt value: {component_value}")
 

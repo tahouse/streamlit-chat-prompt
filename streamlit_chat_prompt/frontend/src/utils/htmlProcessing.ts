@@ -11,14 +11,39 @@ interface CodeBlock {
     plainText: string;     // Clean text with preserved whitespace
     language?: string;
     isInline: boolean;
+    isStandalone: boolean;
+}
+function isStandaloneBlock(element: Element): boolean {
+    // Check if element is direct child of body or another block-level container
+    const isTopLevel = element.parentElement?.tagName === 'BODY';
+
+    // Check if it's the only major content in its container
+    const siblings = Array.from(element.parentElement?.children || []);
+    const hasOnlyWhitespaceOrEmptySiblings = siblings.every(sibling =>
+        sibling === element ||
+        (sibling.textContent || '').trim() === '' ||
+        sibling.tagName === 'BR'
+    );
+
+    // Check if surrounded by empty lines in text content
+    const prevSibling = element.previousSibling;
+    const nextSibling = element.nextSibling;
+    const hasSurroundingWhitespace =
+        (!prevSibling || prevSibling.textContent?.trim() === '') &&
+        (!nextSibling || nextSibling.textContent?.trim() === '');
+
+    return isTopLevel || (hasOnlyWhitespaceOrEmptySiblings && hasSurroundingWhitespace);
 }
 function isInlineCode(element: Element): boolean {
-    // Check if code is within paragraph text
     const isInParagraph = !!element.closest('p');
-    // Check if there are any line breaks in the content
     const hasLineBreaks = element.textContent?.includes('\n');
-    // Check if it's a single short segment
     const isShortSegment = (element.textContent?.length || 0) < 40;
+    const standalone = isStandaloneBlock(element);
+
+    // If it's standalone, it's not inline regardless of other factors
+    if (standalone) {
+        return false;
+    }
 
     return (isInParagraph || isShortSegment) && !hasLineBreaks;
 }
@@ -61,7 +86,7 @@ export function extractCodeBlocks(html: string): CodeBlock[] {
         }
 
         if (isCodeBlock(element)) {
-            Logger.info("component", "Found code block:", {
+            Logger.debug("component", "Found code block:", {
                 element: element.tagName,
                 classes: element.className,
                 style: element.getAttribute('style')
@@ -109,7 +134,8 @@ export function extractCodeBlocks(html: string): CodeBlock[] {
                 html: element.innerHTML,       // Original HTML
                 plainText: decodedPlainText,   // Clean text with preserved whitespace
                 language: language,
-                isInline: isInline
+                isInline: isInline,
+                isStandalone: isStandaloneBlock(element)
             });
 
             // Replace with placeholder (unchanged)

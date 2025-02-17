@@ -188,24 +188,20 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
         })));
 
         let workingHtml = html;
-        console.log(`before working html: ${workingHtml}`);
 
         // Create temporary placeholders for code blocks
         codeBlocks.forEach((block, index) => {
-            console.log(`raw block html: ${block.html}`);
-            console.log(`raw block plain: ${block.plainText}`);
             // Only replace full code blocks with placeholders
-            if (!block.isInline) {
+            if (block.isStandalone) {
                 const placeholder = `[CODEBLOCK${index}]`;
                 workingHtml = workingHtml.replace(block.html, placeholder);
             }
             // Leave inline code in place to be handled by turndown service
         });
-        console.log(`working html: ${workingHtml}`);
 
         // Step 2: Convert remaining HTML to markdown
         const markdown = turndownService.turndown(workingHtml);
-        Logger.info('component', 'After markdown conversion:', {
+        Logger.debug('component', 'After markdown conversion:', {
             markdown: markdown.substring(0, 200) + '...',
             containsPlaceholders: codeBlocks.map((_, index) => ({
                 placeholder: `CODEBLOCK_PLACEHOLDER_${index}_ENDPLACEHOLDER`,
@@ -213,7 +209,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             }))
         });
 
-        Logger.info('component', 'Intermediate markdown:', {
+        Logger.debug('component', 'Intermediate markdown:', {
             markdown,
             codeBlocks: codeBlocks.length
         });
@@ -226,7 +222,6 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
 
             // Clean up the code content while preserving line breaks
             let codeContent = block.plainText;
-            console.log(`code content 1: ${codeContent}`);
 
             // Format as markdown code block, ensuring proper line breaks
             const formattedCode = block.isInline
@@ -240,7 +235,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                 ].join('\n');
 
 
-            Logger.info('component', `Processed code block ${index}:`, {
+            Logger.debug('component', `Processed code block ${index}:`, {
                 placeholder,
                 originalContent: codeContent.substring(0, 100) + '...',
                 formattedBlock: formattedCode.substring(0, 100) + '...',
@@ -262,10 +257,11 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             finalMarkdown = finalMarkdown.replace(placeholder, formattedCode);
 
             // Also try with escaped placeholder just in case
+            // eslint-disable-next-line no-useless-escape
             const escapedPlaceholder = placeholder.replace(/[\[\]]/g, '\\$&');
             finalMarkdown = finalMarkdown.replace(escapedPlaceholder, formattedCode);
 
-            Logger.info('component', `After replacement for block ${index}:`, {
+            Logger.debug('component', `After replacement for block ${index}:`, {
                 success: !finalMarkdown.includes(placeholder),
                 markdownPreview: finalMarkdown.substring(0, 100) + '...'
             });
@@ -275,7 +271,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
 
         // After all replacements
         const remainingPlaceholders = finalMarkdown.match(/\[CODEBLOCK\d+\]/g);
-        Logger.info('component', 'Final check:', {
+        Logger.debug('component', 'Final check:', {
             remainingPlaceholders,
             finalMarkdownPreview: finalMarkdown.substring(0, 200) + '...',
             totalLength: finalMarkdown.length

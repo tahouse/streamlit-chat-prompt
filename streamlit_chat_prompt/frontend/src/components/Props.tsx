@@ -9,4 +9,5 @@ export interface Props {
     disabled?: boolean;
     key?: string;
     debug?: string;
+    clipboard_inspector_enabled?: boolean;
 }

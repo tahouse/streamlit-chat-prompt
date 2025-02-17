@@ -88,7 +88,8 @@ prompt_return: PromptReturn | None = prompt(
     key="chat_prompt",
     placeholder="Hi there! What should we chat about?",
     main_bottom=True,
-    log_level="debug",
+    log_level="info",
+    enable_clipboard_inspector=False,
 )
 
 if prompt_return:

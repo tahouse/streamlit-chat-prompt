@@ -98,8 +98,11 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
       return item.type;
     }));
 
+    // Check if clipboard inspector is enabled via props
+    const clipboardInspectorEnabled = this.props.args?.clipboard_inspector_enabled ?? false;
+
     // If more than one type, show the inspector
-    if (uniqueTypes.size > 1) {
+    if (uniqueTypes.size > 1 && clipboardInspectorEnabled) {
       e.preventDefault(); // Prevent default paste
       const clipboardInspectorData = inspectClipboard(e);
       this.isShowingDialog = true;
