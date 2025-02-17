@@ -6,6 +6,22 @@ export interface ExtractedImage {
     originalUrl: string;
     error?: string;
 }
+interface CodeBlock {
+    html: string;          // Original HTML
+    plainText: string;     // Clean text with preserved whitespace
+    language?: string;
+    isInline: boolean;
+}
+function isInlineCode(element: Element): boolean {
+    // Check if code is within paragraph text
+    const isInParagraph = !!element.closest('p');
+    // Check if there are any line breaks in the content
+    const hasLineBreaks = element.textContent?.includes('\n');
+    // Check if it's a single short segment
+    const isShortSegment = (element.textContent?.length || 0) < 40;
+
+    return (isInParagraph || isShortSegment) && !hasLineBreaks;
+}
 export function decodeHtmlEntities(html: string): string {
     const textarea = document.createElement('textarea');
     textarea.innerHTML = html;
@@ -33,27 +49,25 @@ export function isCodeBlock(element: Element): boolean {
     return isMonospace && isPreFormatted;
 }
 
-export function extractCodeBlocks(html: string): { code: string, language?: string }[] {
+export function extractCodeBlocks(html: string): CodeBlock[] {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
-    const codeBlocks: { code: string, language?: string }[] = [];
+    const codeBlocks: CodeBlock[] = [];
 
-    // Function to process potential code elements
     function processElement(element: Element) {
-        // Skip body element itself
         if (element.tagName === 'BODY') {
             Array.from(element.children).forEach(processElement);
             return;
         }
 
         if (isCodeBlock(element)) {
-            Logger.debug("component", "Found code block:", {
+            Logger.info("component", "Found code block:", {
                 element: element.tagName,
                 classes: element.className,
                 style: element.getAttribute('style')
             });
 
-            // Try to detect language from class names or data attributes
+            // Language detection logic (unchanged)
             let language: string | undefined;
             const classes = element.className.split(' ');
             const langClass = classes.find(c => c.startsWith('language-'));
@@ -61,13 +75,11 @@ export function extractCodeBlocks(html: string): { code: string, language?: stri
                 language = langClass.replace('language-', '');
             }
 
-            // For VS Code style syntax highlighting, try to detect language from content
+            // VS Code detection logic (unchanged)
             if (!language && element.innerHTML.includes('class="')) {
-                // Look for typical VS Code syntax highlighting classes
                 if (element.innerHTML.includes('keyword') ||
                     element.innerHTML.includes('function') ||
                     element.innerHTML.includes('operator')) {
-                    // Check for specific language indicators
                     if (element.innerHTML.includes('def ') || element.innerHTML.includes('class ')) {
                         language = 'python';
                     } else if (element.innerHTML.includes('function ')) {
@@ -76,34 +88,42 @@ export function extractCodeBlocks(html: string): { code: string, language?: stri
                 }
             }
 
-            // Clean up the code text
-            const code = element.textContent || '';
-            // Preserve syntax highlighting if present in the original HTML
-            const originalHtml = element.innerHTML;
+            // Create cleaned plaintext version
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = element.innerHTML;
+            const plainText = tempDiv.innerHTML
+                .replace(/<br\s*\/?>/gi, '\n')
+                .replace(/<div>/gi, '\n')
+                .replace(/<\/div>/gi, '')
+                .replace(/<p>/gi, '\n')
+                .replace(/<\/p>/gi, '\n')
+                .replace(/<[^>]+>/g, '')
+                .replace(/\r\n/g, '\n')
+                .replace(/\n\s*\n\s*\n/g, '\n\n');
+
+            // Decode HTML entities in plaintext
+            const decodedPlainText = decodeHtmlEntities(plainText).trim();
+            const isInline = isInlineCode(element);
 
             codeBlocks.push({
-                code: originalHtml.includes('style="color:') ? originalHtml : code,
-                language
+                html: element.innerHTML,       // Original HTML
+                plainText: decodedPlainText,   // Clean text with preserved whitespace
+                language: language,
+                isInline: isInline
             });
 
-            // Replace the code block with a placeholder
+            // Replace with placeholder (unchanged)
             const placeholder = document.createElement('p');
             placeholder.textContent = `[code-block-${codeBlocks.length - 1}]`;
             element.replaceWith(placeholder);
-
-            // Don't process children of code blocks
             return;
         }
 
-        // Recursively check children
         Array.from(element.children).forEach(processElement);
     }
 
-    // Process the document
     processElement(doc.body);
-
     Logger.debug("component", "Extracted code blocks:", codeBlocks);
-
     return codeBlocks;
 }
 

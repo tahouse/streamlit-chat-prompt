@@ -1,7 +1,7 @@
 // ClipboardInspector.tsx
 import CloseIcon from '@mui/icons-material/Close'; // Fix CloseIcon import
 import TurndownService from 'turndown';
-import { decodeHtmlEntities, extractCodeBlocks, ExtractedImage, extractImagesFromHtml } from '../utils/htmlProcessing';
+import { extractCodeBlocks, ExtractedImage, extractImagesFromHtml } from '../utils/htmlProcessing';
 
 import {
     Box,
@@ -181,17 +181,27 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             index,
             placeholder: `CODEBLOCK_PLACEHOLDER_${index}_ENDPLACEHOLDER`,
             language: block.language,
-            codePreview: block.code.substring(0, 100) + '...',
-            fullLength: block.code.length
+            htmlPreview: block.html.substring(0, 100) + '...',
+            htmlLength: block.html.length,
+            plainPreview: block.plainText.substring(0, 100) + '...',
+            isInline: block.isInline,
         })));
 
         let workingHtml = html;
+        console.log(`before working html: ${workingHtml}`);
 
         // Create temporary placeholders for code blocks
         codeBlocks.forEach((block, index) => {
-            const placeholder = `[CODEBLOCK${index}]`;  // Simpler placeholder
-            workingHtml = workingHtml.replace(block.code, placeholder);
+            console.log(`raw block html: ${block.html}`);
+            console.log(`raw block plain: ${block.plainText}`);
+            // Only replace full code blocks with placeholders
+            if (!block.isInline) {
+                const placeholder = `[CODEBLOCK${index}]`;
+                workingHtml = workingHtml.replace(block.html, placeholder);
+            }
+            // Leave inline code in place to be handled by turndown service
         });
+        console.log(`working html: ${workingHtml}`);
 
         // Step 2: Convert remaining HTML to markdown
         const markdown = turndownService.turndown(workingHtml);
@@ -215,44 +225,25 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             const placeholder = `[CODEBLOCK${index}]`;
 
             // Clean up the code content while preserving line breaks
-            let codeContent = block.code;
-            if (block.code.includes('style="color:')) {
-                // Create a temporary container
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = block.code;
-
-                // Use textContent but preserve line breaks
-                codeContent = tempDiv.innerHTML
-                    .replace(/<br\s*\/?>/gi, '\n') // Replace <br> with newline
-                    .replace(/<div>/gi, '\n')      // Replace div starts with newline
-                    .replace(/<\/div>/gi, '')      // Remove div ends
-                    .replace(/<p>/gi, '\n')        // Replace p starts with newline
-                    .replace(/<\/p>/gi, '\n')      // Replace p ends with newline
-                    .replace(/<[^>]+>/g, '');      // Remove any other HTML tags
-
-                // Decode HTML entities
-                codeContent = decodeHtmlEntities(codeContent);
-
-                // Normalize line endings and remove extra blank lines
-                codeContent = codeContent
-                    .replace(/\r\n/g, '\n')        // Normalize line endings
-                    .replace(/\n\s*\n\s*\n/g, '\n\n') // Remove extra blank lines
-                    .trim();
-            }
+            let codeContent = block.plainText;
+            console.log(`code content 1: ${codeContent}`);
 
             // Format as markdown code block, ensuring proper line breaks
-            const formattedCodeBlock = [
-                '',                              // Empty line before code block
-                '```' + (block.language || 'python'), // Default to python
-                codeContent,                     // Keep original line breaks
-                '```',
-                ''                              // Empty line after code block
-            ].join('\n');
+            const formattedCode = block.isInline
+                ? `\`${block.plainText}\``  // Inline code with single backticks
+                : [                         // Block code with triple backticks
+                    '',
+                    '```' + (block.language || 'python'),
+                    block.plainText,
+                    '```',
+                    ''
+                ].join('\n');
 
-            Logger.info('component', `Processing code block ${index}:`, {
+
+            Logger.info('component', `Processed code block ${index}:`, {
                 placeholder,
                 originalContent: codeContent.substring(0, 100) + '...',
-                formattedBlock: formattedCodeBlock.substring(0, 100) + '...',
+                formattedBlock: formattedCode.substring(0, 100) + '...',
                 markdownBefore: finalMarkdown.substring(0, 100) + '...',
                 placeholderInMarkdown: finalMarkdown.includes(placeholder),
                 containsSpecialChars: {
@@ -268,11 +259,11 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             });
 
             // Simple string replacement should work now
-            finalMarkdown = finalMarkdown.replace(placeholder, formattedCodeBlock);
+            finalMarkdown = finalMarkdown.replace(placeholder, formattedCode);
 
             // Also try with escaped placeholder just in case
             const escapedPlaceholder = placeholder.replace(/[\[\]]/g, '\\$&');
-            finalMarkdown = finalMarkdown.replace(escapedPlaceholder, formattedCodeBlock);
+            finalMarkdown = finalMarkdown.replace(escapedPlaceholder, formattedCode);
 
             Logger.info('component', `After replacement for block ${index}:`, {
                 success: !finalMarkdown.includes(placeholder),
