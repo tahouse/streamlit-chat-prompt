@@ -14,6 +14,11 @@ interface CodeBlock {
     isStandalone: boolean;
 }
 function isStandaloneBlock(element: Element): boolean {
+    // If it's a <code> element not in a <pre>, it's not standalone
+    if (element.tagName === 'CODE' && !element.closest('pre')) {
+        return false;
+    }
+
     // Check if element is direct child of body or another block-level container
     const isTopLevel = element.parentElement?.tagName === 'BODY';
 
@@ -39,10 +44,28 @@ function isInlineCode(element: Element): boolean {
     const hasLineBreaks = element.textContent?.includes('\n');
     const isShortSegment = (element.textContent?.length || 0) < 40;
     const standalone = isStandaloneBlock(element);
+    const isCodeElement = element.tagName === 'CODE';
+    const isInPreBlock = !!element.closest('pre');
 
+    // add labels
+    Logger.info("component", "Checking if code block is inline:", {
+        text: element.textContent,
+        isInParagraph: isInParagraph,
+        hasLineBreaks: hasLineBreaks,
+        isShortSegment: isShortSegment,
+        standalone: standalone,
+        isCodeElement: isCodeElement,
+        isInPreBlock: isInPreBlock
+    }
+    )
     // If it's standalone, it's not inline regardless of other factors
     if (standalone) {
         return false;
+    }
+
+    // If it's a <code> element not inside a <pre>, treat as inline
+    if (isCodeElement && !isInPreBlock) {
+        return true;
     }
 
     return (isInParagraph || isShortSegment) && !hasLineBreaks;
@@ -55,23 +78,19 @@ export function decodeHtmlEntities(html: string): string {
 export function isCodeBlock(element: Element): boolean {
     if (!(element instanceof HTMLElement)) return false;
 
-    // Get computed or inline styles
+    // Check for PRE and CODE tags first
+    if (element.tagName === 'PRE' || element.tagName === 'CODE') {
+        return true;
+    }
+
+    // Then check styles as backup
     const fontFamily = element.style.fontFamily || window.getComputedStyle(element).fontFamily;
     const whiteSpace = element.style.whiteSpace || window.getComputedStyle(element).whiteSpace;
 
-    // Check for common code editor fonts and pre-formatted text indicators
     const isMonospace = /(monospace|menlo|monaco|consolas|courier|source code)/i.test(fontFamily);
-    const isPreFormatted = whiteSpace === 'pre' || element.tagName === 'PRE' || element.tagName === 'CODE';
+    const isPreFormatted = whiteSpace === 'pre';
 
-    Logger.debug("component", "Code block check:", {
-        element: element.tagName,
-        fontFamily,
-        whiteSpace,
-        isMonospace,
-        isPreFormatted
-    });
-
-    return isMonospace && isPreFormatted;
+    return isMonospace || isPreFormatted;
 }
 
 export function extractCodeBlocks(html: string): CodeBlock[] {
@@ -91,27 +110,6 @@ export function extractCodeBlocks(html: string): CodeBlock[] {
                 classes: element.className,
                 style: element.getAttribute('style')
             });
-
-            // Language detection logic (unchanged)
-            let language: string | undefined;
-            const classes = element.className.split(' ');
-            const langClass = classes.find(c => c.startsWith('language-'));
-            if (langClass) {
-                language = langClass.replace('language-', '');
-            }
-
-            // VS Code detection logic (unchanged)
-            if (!language && element.innerHTML.includes('class="')) {
-                if (element.innerHTML.includes('keyword') ||
-                    element.innerHTML.includes('function') ||
-                    element.innerHTML.includes('operator')) {
-                    if (element.innerHTML.includes('def ') || element.innerHTML.includes('class ')) {
-                        language = 'python';
-                    } else if (element.innerHTML.includes('function ')) {
-                        language = 'javascript';
-                    }
-                }
-            }
 
             // Create cleaned plaintext version
             const tempDiv = document.createElement('div');
@@ -133,7 +131,6 @@ export function extractCodeBlocks(html: string): CodeBlock[] {
             codeBlocks.push({
                 html: element.innerHTML,       // Original HTML
                 plainText: decodedPlainText,   // Clean text with preserved whitespace
-                language: language,
                 isInline: isInline,
                 isStandalone: isStandaloneBlock(element)
             });

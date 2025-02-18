@@ -1,7 +1,6 @@
 // ClipboardInspector.tsx
-import CloseIcon from '@mui/icons-material/Close'; // Fix CloseIcon import
-import TurndownService from 'turndown';
-import { extractCodeBlocks, ExtractedImage, extractImagesFromHtml } from '../utils/htmlProcessing';
+import * as turndownPluginGfm from '@joplin/turndown-plugin-gfm';
+import CloseIcon from '@mui/icons-material/Close';
 
 import {
     Box,
@@ -21,8 +20,54 @@ import {
 } from '@mui/material';
 import React, { useEffect, useState } from 'react';
 import { Theme } from 'streamlit-component-lib';
+import TurndownService from 'turndown';
+import { extractCodeBlocks, ExtractedImage, extractImagesFromHtml } from '../utils/htmlProcessing';
 import { Logger } from '../utils/logger';
 
+const createTurndownService = () => {
+    const service = new TurndownService({
+        // headingStyle: 'atx',
+        // bulletListMarker: '-',
+        // codeBlockStyle: 'fenced',
+        // fence: '```',
+        // emDelimiter: '_',
+        // strongDelimiter: '**'
+    });
+    // Add GFM plugin
+    service.use(turndownPluginGfm.tables);
+    // service.use(turndownPluginGfm.strikethrough);
+    // service.use(turndownPluginGfm.taskListItems);
+
+    // // Add custom rules with proper typing
+    // service.addRule('codeBlocks', {
+    //     filter: (node): boolean => {
+    //         return (
+    //             node.nodeName === 'PRE' ||
+    //             (node.nodeName === 'CODE' && node.parentNode?.nodeName !== 'PRE')
+    //         );
+    //     },
+    //     replacement: (content, node): string => {
+    //         // Check if it's an inline code block
+    //         if (node.nodeName === 'CODE' && node.parentNode?.nodeName !== 'PRE') {
+    //             return `\`${content}\``;
+    //         }
+
+    //         // Handle block-level code
+    //         const language = (node as HTMLElement).getAttribute?.('class')?.replace('language-', '') || '';
+    //         return `\n\`\`\`${language}\n${content}\n\`\`\`\n`;
+    //     }
+    // });
+
+    // service.addRule('strikethrough', {
+    //     filter: ['del', 's', 'strike'] as (keyof HTMLElementTagNameMap)[],
+    //     replacement: (content: string): string => `~~${content}~~`
+    // });
+
+    // Keep certain HTML elements
+    // service.keep(['div', 'span']);
+
+    return service;
+};
 export const DIALOG_HEIGHTS = {
     CLIPBOARD_INSPECTOR: 600,
     CLIPBOARD_INSPECTOR_MAX: 900,
@@ -109,7 +154,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
     const [selectedItems, setSelectedItems] = useState<Record<string, boolean>>({});
     const [selectAll, setSelectAll] = useState(false);
     const [markdownConversion, setMarkdownConversion] = useState<Record<string, boolean>>({});
-    const turndownService = React.useMemo(() => new TurndownService(), []);
+    const turndownService = React.useMemo(() => createTurndownService(), []);
 
     // Reset all state when dialog closes
     useEffect(() => {
@@ -228,7 +273,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                 ? `\`${block.plainText}\``  // Inline code with single backticks
                 : [                         // Block code with triple backticks
                     '',
-                    '```' + (block.language || 'python'),
+                    '```' + (block.language || ''),
                     block.plainText,
                     '```',
                     ''
