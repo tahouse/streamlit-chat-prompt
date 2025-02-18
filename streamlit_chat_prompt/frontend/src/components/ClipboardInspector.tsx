@@ -300,6 +300,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
 
         // Step 2: Convert remaining HTML to markdown
         let markdown = turndownService.turndown(workingHtml);
+
         Logger.debug('component', 'After markdown conversion:', {
             markdown: markdown.substring(0, 200) + '...',
             containsPlaceholders: codeBlocks.map((_, index) => ({
@@ -367,8 +368,6 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                 markdownPreview: finalMarkdown.substring(0, 100) + '...'
             });
         });
-
-
 
         // After all replacements
         const remainingPlaceholders = finalMarkdown.match(/\[CODEBLOCK\d+\]/g);
@@ -466,118 +465,49 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
     const renderContentPreview = (item: ClipboardItem) => {
         const allImages: { file: File, id: string }[] = [];
 
-        // Add direct image if present
         if (item.type.startsWith(CONTENT_TYPE_GROUPS.IMAGE) && item.as_file) {
-            const directImageId = `${item.id}-direct`;
-            allImages.push({
-                file: item.as_file,
-                id: directImageId
-            });
+            allImages.push({ file: item.as_file, id: `${item.id}-direct` });
         }
 
-        // Add extracted images, filtering SVGs unless explicitly requested
         const itemImages = extractedImages[item.id] || [];
-        const filteredImages = showSvgs[item.id]
-            ? itemImages
-            : itemImages.filter(img => !img.originalUrl.startsWith('inline-svg'));
-
-        allImages.push(...filteredImages.map((img, idx) => ({
-            file: img.file,
-            id: `${item.id}-${idx}`
-        })));
+        const filteredImages = showSvgs[item.id] ? itemImages : itemImages.filter(img => !img.originalUrl.startsWith('inline-svg'));
+        allImages.push(...filteredImages.map((img, idx) => ({ file: img.file, id: `${item.id}-${idx}` })));
 
         return (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                {/* HTML Controls - Only show if item is selected */}
-                {selectedItems[item.id] && item.type === CONTENT_TYPE_GROUPS.HTML && (
-                    <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                        <FormControlLabel
-                            control={
-                                <Checkbox
-                                    checked={markdownConversion[item.id] ?? true}
-                                    onChange={(e) => handleMarkdownConversion(item.id, e.target.checked)}
-                                />
-                            }
-                            label="Convert to Markdown"
-                        />
-                        {!showSvgs[item.id] && (
-                            <Button
-                                size="small"
-                                variant="outlined"
-                                onClick={() => handleExtractSvgs(item.id)}
-                            >
-                                Extract SVGs
-                            </Button>
-                        )}
-                    </Box>
-                )}
-
-                {/* Images Section - Always show images for selection */}
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}> {/* Reduced gap from 1 to 0.5 */}
                 {allImages.length > 0 && (
-                    <Box sx={{ mt: 1 }}>
-                        <Typography variant="subtitle2">
-                            {item.type.startsWith(CONTENT_TYPE_GROUPS.IMAGE) ? 'Image:' : 'Images'}
-                        </Typography>
+                    <Box sx={{ mt: .5 }}>
+                        <Typography variant="subtitle2">{item.type.startsWith(CONTENT_TYPE_GROUPS.IMAGE) ? 'Image:' : 'Images'}</Typography>
                         <ImageList sx={{ maxHeight: 120 }} cols={4} rowHeight={80}>
                             {allImages.map(({ file, id }) => (
                                 <ImageListItem key={id} sx={{ position: 'relative' }}>
                                     <FormControlLabel
                                         control={
-                                            <Checkbox
-                                                size="small"
-                                                checked={selectedImages[id] || false}
-                                                onChange={(e) => setSelectedImages(prev => ({
-                                                    ...prev,
-                                                    [id]: e.target.checked
-                                                }))}
-                                            />
+                                            <Checkbox size="small" checked={selectedImages[id] || false}
+                                                onChange={(e) => setSelectedImages(prev => ({ ...prev, [id]: e.target.checked }))} />
                                         }
                                         label=""
-                                        sx={{
-                                            position: 'absolute',
-                                            top: 0,
-                                            right: 0,
-                                            zIndex: 1,
-                                            m: 0
-                                        }}
+                                        sx={{ position: 'absolute', top: 0, right: 0, zIndex: 1, m: 0 }}
                                     />
-                                    <img
-                                        src={URL.createObjectURL(file)}
-                                        alt={`${id}`}
-                                        style={{
-                                            objectFit: 'cover',
-                                            height: '80px',
-                                            width: '100%'
-                                        }}
-                                        onLoad={(e) => URL.revokeObjectURL((e.target as HTMLImageElement).src)}
-                                    />
+                                    <img src={URL.createObjectURL(file)} alt={id} style={{ objectFit: 'cover', height: '80px', width: '100%' }}
+                                        onLoad={(e) => URL.revokeObjectURL((e.target as HTMLImageElement).src)} />
                                 </ImageListItem>
                             ))}
                         </ImageList>
                     </Box>
                 )}
 
-                {/* Text Content - Only show if item is selected */}
                 {selectedItems[item.id] && item.content && (
-                    <Box sx={{
-                        maxHeight: 200,
-                        overflow: 'auto',
-                        p: 1,
-                        bgcolor: 'background.paper',
-                        borderRadius: 1,
-                        whiteSpace: 'pre-wrap',
-                        fontFamily: 'monospace'
-                    }}>
-                        {item.type === CONTENT_TYPE_GROUPS.HTML
-                            ? (markdownConversion[item.id]
-                                ? generateMarkdownPreview(item.content.toString(), item.id)
-                                : item.content.toString())
-                            : item.content.toString()}
+                    <Box sx={{ maxHeight: 200, overflow: 'auto', p: 1, bgcolor: 'background.paper', borderRadius: 1, whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
+                        {item.type === CONTENT_TYPE_GROUPS.HTML ?
+                            (markdownConversion[item.id] ? generateMarkdownPreview(item.content.toString(), item.id) : item.content.toString()) :
+                            item.content.toString()}
                     </Box>
                 )}
             </Box>
         );
     };
+
     return (
         <Dialog
             open={open}
@@ -627,26 +557,50 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
 
                 <Stack spacing={2}>
                     {data.map((group, groupIdx) => (
-                        <Paper key={groupIdx} variant="outlined" sx={{ p: 2 }}>
-                            <Typography variant="h6" gutterBottom>
+                        <Paper key={groupIdx} variant="outlined" sx={{ p: 1.5 }}>
+                            <Typography variant="h6" sx={{ mb: 1 }}>
                                 {group.type}
                             </Typography>
 
                             {group.items?.map((item) => (
-                                <Box key={item.id} sx={{ mb: 2 }}>
-                                    <FormControlLabel
-                                        control={
-                                            <Checkbox
-                                                checked={selectedItems[item.id] || false}
-                                                onChange={(e) => handleSelectItem(item.id, e.target.checked)}
-                                            />
-                                        }
-                                        label={
-                                            item.type === CONTENT_TYPE_GROUPS.HTML
-                                                ? (markdownConversion[item.id] ? 'text/markdown' : 'text/html')
-                                                : item.type
-                                        }
-                                    />
+                                <Box key={item.id} sx={{ mb: 1 }}>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                        <FormControlLabel
+                                            control={
+                                                <Checkbox
+                                                    checked={selectedItems[item.id] || false}
+                                                    onChange={(e) => handleSelectItem(item.id, e.target.checked)}
+                                                />
+                                            }
+                                            label={
+                                                item.type === CONTENT_TYPE_GROUPS.HTML
+                                                    ? (markdownConversion[item.id] ? 'text/markdown' : 'text/html')
+                                                    : item.type
+                                            }
+                                        />
+                                        {item.type === CONTENT_TYPE_GROUPS.HTML && (
+                                            <>
+                                                <FormControlLabel
+                                                    control={
+                                                        <Checkbox
+                                                            checked={markdownConversion[item.id] ?? true}
+                                                            onChange={(e) => handleMarkdownConversion(item.id, e.target.checked)}
+                                                        />
+                                                    }
+                                                    label="Convert to Markdown"
+                                                />
+                                                {!showSvgs[item.id] && (
+                                                    <Button
+                                                        size="small"
+                                                        variant="outlined"
+                                                        onClick={() => handleExtractSvgs(item.id)}
+                                                    >
+                                                        Extract SVGs
+                                                    </Button>
+                                                )}
+                                            </>
+                                        )}
+                                    </Box>
                                     {renderContentPreview(item)}
                                 </Box>
                             ))}

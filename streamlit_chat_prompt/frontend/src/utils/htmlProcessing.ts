@@ -265,44 +265,28 @@ export async function extractImagesFromHtml(html: string): Promise<ExtractedImag
     return images;
 }
 
-export function cleanBase64ImagesFromContent(content: string, startIndex: number = 0): string {
-    const images: ExtractedImage[] = [];
+export function cleanBase64ImagesFromContent(content: string, imageCount: number): string {
     let cleanContent = content;
+    let currentIndex = imageCount; // Start from the provided count
 
     // Match markdown image tags with base64 data
     const regex = /!\[.*?\]\(data:image\/[^;]+;base64,[^)]+\)/g;
 
     let match;
     while ((match = regex.exec(cleanContent)) !== null) {
-        const base64Match = match[0].match(/data:image\/([^;]+);base64,([^)]+)/);
-        if (base64Match) {
-            const [, mimeType, base64Data] = base64Match;
-
-            try {
-                const byteCharacters = atob(base64Data);
-                const byteNumbers = new Array(byteCharacters.length);
-
-                for (let i = 0; i < byteCharacters.length; i++) {
-                    byteNumbers[i] = byteCharacters.charCodeAt(i);
-                }
-
-                const byteArray = new Uint8Array(byteNumbers);
-                const blob = new Blob([byteArray], { type: `image/${mimeType}` });
-                const filename = `inline-image-${startIndex + images.length}.${mimeType}`;
-                const file = new File([blob], filename, { type: `image/${mimeType}` });
-
-                const placeholder = `![image-${startIndex + images.length}][${startIndex + images.length}]`;
-                cleanContent = cleanContent.replace(match[0], placeholder);
-
-                images.push({
-                    file,
-                    originalUrl: placeholder
-                });
-            } catch (error) {
-                Logger.warn('images', 'Failed to process base64 image:', error);
-            }
-        }
+        // Replace with numbered reference using currentIndex
+        const placeholder = `![image-${currentIndex}][${currentIndex}]`;
+        cleanContent = cleanContent.replace(match[0], placeholder);
+        currentIndex++;
     }
 
-    return cleanContent
+    // Also handle regular image URLs
+    const urlRegex = /!\[.*?\]\((https?:\/\/[^)]+)\)/g;
+    while ((match = urlRegex.exec(cleanContent)) !== null) {
+        const placeholder = `![image-${currentIndex}][${currentIndex}]`;
+        cleanContent = cleanContent.replace(match[0], placeholder);
+        currentIndex++;
+    }
+
+    return cleanContent;
 }
