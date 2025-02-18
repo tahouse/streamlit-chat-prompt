@@ -150,7 +150,6 @@ export function extractCodeBlocks(html: string): CodeBlock[] {
     return codeBlocks;
 }
 
-
 export async function extractImagesFromHtml(html: string): Promise<ExtractedImage[]> {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
@@ -165,6 +164,29 @@ export async function extractImagesFromHtml(html: string): Promise<ExtractedImag
             const src = element.src;
             if (src) {
                 try {
+                    // Handle base64 encoded images
+                    if (src.startsWith('data:image/')) {
+                        const mimeType = src.split(';')[0].split(':')[1];
+                        const base64Data = src.split(',')[1];
+                        const byteCharacters = atob(base64Data);
+                        const byteNumbers = new Array(byteCharacters.length);
+
+                        for (let i = 0; i < byteCharacters.length; i++) {
+                            byteNumbers[i] = byteCharacters.charCodeAt(i);
+                        }
+
+                        const byteArray = new Uint8Array(byteNumbers);
+                        const blob = new Blob([byteArray], { type: mimeType });
+                        const filename = `inline-image-${images.length}.${mimeType.split('/')[1]}`;
+                        const file = new File([blob], filename, { type: mimeType });
+
+                        images.push({
+                            file,
+                            originalUrl: `[embedded-image-${images.length}]` // Use placeholder as reference
+                        });
+                        continue;
+                    }
+
                     const corsProxies = [
                         (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
                         (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
@@ -241,4 +263,46 @@ export async function extractImagesFromHtml(html: string): Promise<ExtractedImag
     }
 
     return images;
+}
+
+export function cleanBase64ImagesFromContent(content: string, startIndex: number = 0): string {
+    const images: ExtractedImage[] = [];
+    let cleanContent = content;
+
+    // Match markdown image tags with base64 data
+    const regex = /!\[.*?\]\(data:image\/[^;]+;base64,[^)]+\)/g;
+
+    let match;
+    while ((match = regex.exec(cleanContent)) !== null) {
+        const base64Match = match[0].match(/data:image\/([^;]+);base64,([^)]+)/);
+        if (base64Match) {
+            const [, mimeType, base64Data] = base64Match;
+
+            try {
+                const byteCharacters = atob(base64Data);
+                const byteNumbers = new Array(byteCharacters.length);
+
+                for (let i = 0; i < byteCharacters.length; i++) {
+                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                }
+
+                const byteArray = new Uint8Array(byteNumbers);
+                const blob = new Blob([byteArray], { type: `image/${mimeType}` });
+                const filename = `inline-image-${startIndex + images.length}.${mimeType}`;
+                const file = new File([blob], filename, { type: `image/${mimeType}` });
+
+                const placeholder = `![image-${startIndex + images.length}][${startIndex + images.length}]`;
+                cleanContent = cleanContent.replace(match[0], placeholder);
+
+                images.push({
+                    file,
+                    originalUrl: placeholder
+                });
+            } catch (error) {
+                Logger.warn('images', 'Failed to process base64 image:', error);
+            }
+        }
+    }
+
+    return cleanContent
 }

@@ -21,7 +21,7 @@ import {
 import React, { useEffect, useState } from 'react';
 import { Theme } from 'streamlit-component-lib';
 import TurndownService from 'turndown';
-import { extractCodeBlocks, ExtractedImage, extractImagesFromHtml } from '../utils/htmlProcessing';
+import { cleanBase64ImagesFromContent, extractCodeBlocks, ExtractedImage, extractImagesFromHtml } from '../utils/htmlProcessing';
 import { Logger } from '../utils/logger';
 
 const createTurndownService = () => {
@@ -155,29 +155,77 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
     const [selectAll, setSelectAll] = useState(false);
     const [markdownConversion, setMarkdownConversion] = useState<Record<string, boolean>>({});
     const turndownService = React.useMemo(() => createTurndownService(), []);
-
-    // Reset all state when dialog closes
+    const [showSvgs, setShowSvgs] = useState<Record<string, boolean>>({});
     useEffect(() => {
-        if (!open) {
-            // Reset all state
+        if (open) {
+            // Automatically process HTML content and convert to markdown
+            data.forEach(group => {
+                group.items?.forEach(item => {
+                    // Pre-select HTML items and images, but not plain text
+                    if (item.type === CONTENT_TYPE_GROUPS.HTML ||
+                        item.type.startsWith(CONTENT_TYPE_GROUPS.IMAGE)) {
+                        setSelectedItems(prev => ({
+                            ...prev,
+                            [item.id]: true
+                        }));
+                    }
+
+                    // Auto-convert HTML to markdown
+                    if (item.type === CONTENT_TYPE_GROUPS.HTML) {
+                        setMarkdownConversion(prev => ({
+                            ...prev,
+                            [item.id]: true
+                        }));
+                    }
+
+                    // Process HTML content for images
+                    if (item.type === CONTENT_TYPE_GROUPS.HTML && item.content) {
+                        processHtmlContent(item.id, item.content.toString());
+                    }
+                });
+            });
+
+            // Update select all state based on whether all non-text items are selected
+            const nonTextItems = data.flatMap(group =>
+                group.items?.filter(item =>
+                    item.type !== CONTENT_TYPE_GROUPS.TEXT
+                ) || []
+            );
+            setSelectAll(nonTextItems.length > 0);
+        } else {
+            // Reset state when closing
             setSelectedImages({});
             setExtractedImages({});
             setSelectedItems({});
             setSelectAll(false);
             setMarkdownConversion({});
+            setShowSvgs({});
         }
-    }, [open]);
+    }, [open, data]);
 
-
-    // Add this function to process HTML content
     const processHtmlContent = async (itemId: string, html: string) => {
         const images = await extractImagesFromHtml(html);
+
+        // Filter out SVGs for initial display
+        const nonSvgImages = images.filter(img => !img.originalUrl.startsWith('inline-svg'));
+
+        // Pre-select all non-SVG images
+        const newSelectedImages: Record<string, boolean> = {};
+        nonSvgImages.forEach((_, idx) => {
+            const imageId = `${itemId}-${idx}`;
+            newSelectedImages[imageId] = true;
+        });
+
         setExtractedImages(prev => ({
             ...prev,
-            [itemId]: images
+            [itemId]: images // Store all images but only show non-SVGs initially
+        }));
+
+        setSelectedImages(prev => ({
+            ...prev,
+            ...newSelectedImages
         }));
     };
-
     const handleSelectAll = (checked: boolean) => {
         setSelectAll(checked);
         const newSelected: Record<string, boolean> = {};
@@ -187,6 +235,12 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             });
         });
         setSelectedItems(newSelected);
+    };
+    const handleExtractSvgs = (itemId: string) => {
+        setShowSvgs(prev => ({
+            ...prev,
+            [itemId]: true
+        }));
     };
 
     const handleSelectItem = (itemId: string, checked: boolean) => {
@@ -245,7 +299,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
         });
 
         // Step 2: Convert remaining HTML to markdown
-        const markdown = turndownService.turndown(workingHtml);
+        let markdown = turndownService.turndown(workingHtml);
         Logger.debug('component', 'After markdown conversion:', {
             markdown: markdown.substring(0, 200) + '...',
             containsPlaceholders: codeBlocks.map((_, index) => ({
@@ -254,11 +308,13 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             }))
         });
 
-        Logger.debug('component', 'Intermediate markdown:', {
+        markdown = cleanBase64ImagesFromContent(
             markdown,
-            codeBlocks: codeBlocks.length
+            (extractedImages[itemId] || []).length
+        );
+        Logger.debug('component', 'Intermediate minus base64 images:', {
+            markdown,
         });
-
 
         // Step 3: Replace placeholders with properly formatted code blocks
         let finalMarkdown = markdown;
@@ -325,7 +381,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             Logger.warn('component', 'Remaining placeholders:', remainingPlaceholders);
         }
 
-        // Handle images
+        // Step 5: Handle already extracted images
         const itemImages = extractedImages[itemId] || [];
         const selectedItemImages = itemImages.filter((_, idx) =>
             selectedImages[`${itemId}-${idx}`]
@@ -351,11 +407,6 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                 finalMarkdown += `[${idx}]: attachment:${idx}\n`;
             });
         }
-
-        Logger.info('component', 'Final markdown:', {
-            length: finalMarkdown.length,
-            preview: finalMarkdown.substring(0, 100) + '...'
-        });
 
         return finalMarkdown;
     }, [extractedImages, selectedImages, turndownService]);
@@ -417,40 +468,49 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
 
         // Add direct image if present
         if (item.type.startsWith(CONTENT_TYPE_GROUPS.IMAGE) && item.as_file) {
+            const directImageId = `${item.id}-direct`;
             allImages.push({
                 file: item.as_file,
-                id: `${item.id}-direct`
+                id: directImageId
             });
         }
 
-        // Add extracted images if present
+        // Add extracted images, filtering SVGs unless explicitly requested
         const itemImages = extractedImages[item.id] || [];
-        allImages.push(...itemImages.map((img, idx) => ({
+        const filteredImages = showSvgs[item.id]
+            ? itemImages
+            : itemImages.filter(img => !img.originalUrl.startsWith('inline-svg'));
+
+        allImages.push(...filteredImages.map((img, idx) => ({
             file: img.file,
             id: `${item.id}-${idx}`
         })));
 
         return (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+
                 {/* HTML Controls */}
                 {item.type === CONTENT_TYPE_GROUPS.HTML && (
                     <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
                         <FormControlLabel
                             control={
                                 <Checkbox
-                                    checked={markdownConversion[item.id] || false}
+                                    checked={markdownConversion[item.id] ?? true} // Default to true
                                     onChange={(e) => handleMarkdownConversion(item.id, e.target.checked)}
                                 />
                             }
-                            label="Convert to Markdown"  // Changed this label to be consistent
+                            label="Convert to Markdown"
+                        // disabled // Optional: disable if you don't want users to change it
                         />
-                        <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={() => processHtmlContent(item.id, item.content?.toString() || '')}
-                        >
-                            Extract Images
-                        </Button>
+                        {!showSvgs[item.id] && (
+                            <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() => handleExtractSvgs(item.id)}
+                            >
+                                Extract SVGs
+                            </Button>
+                        )}
                     </Box>
                 )}
 
@@ -458,7 +518,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                 {allImages.length > 0 && (
                     <Box sx={{ mt: 1 }}>
                         <Typography variant="subtitle2">
-                            {item.type.startsWith(CONTENT_TYPE_GROUPS.IMAGE) ? 'Image:' : 'Extracted Images:'}
+                            {item.type.startsWith(CONTENT_TYPE_GROUPS.IMAGE) ? 'Image:' : 'Images'}
                         </Typography>
                         <ImageList sx={{ maxHeight: 120 }} cols={4} rowHeight={80}>
                             {allImages.map(({ file, id }) => (
@@ -480,7 +540,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                                             top: 0,
                                             right: 0,
                                             zIndex: 1,
-                                            m: 0 // Remove margin
+                                            m: 0
                                         }}
                                     />
                                     <img
@@ -510,8 +570,10 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                         whiteSpace: 'pre-wrap',
                         fontFamily: 'monospace'
                     }}>
-                        {markdownConversion[item.id]
-                            ? generateMarkdownPreview(item.content.toString(), item.id)
+                        {item.type === CONTENT_TYPE_GROUPS.HTML
+                            ? (markdownConversion[item.id]
+                                ? generateMarkdownPreview(item.content.toString(), item.id)
+                                : item.content.toString())
                             : item.content.toString()}
                     </Box>
                 )}
