@@ -488,19 +488,17 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
 
         return (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-
-                {/* HTML Controls */}
-                {item.type === CONTENT_TYPE_GROUPS.HTML && (
+                {/* HTML Controls - Only show if item is selected */}
+                {selectedItems[item.id] && item.type === CONTENT_TYPE_GROUPS.HTML && (
                     <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
                         <FormControlLabel
                             control={
                                 <Checkbox
-                                    checked={markdownConversion[item.id] ?? true} // Default to true
+                                    checked={markdownConversion[item.id] ?? true}
                                     onChange={(e) => handleMarkdownConversion(item.id, e.target.checked)}
                                 />
                             }
                             label="Convert to Markdown"
-                        // disabled // Optional: disable if you don't want users to change it
                         />
                         {!showSvgs[item.id] && (
                             <Button
@@ -514,7 +512,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                     </Box>
                 )}
 
-                {/* Images Section */}
+                {/* Images Section - Always show images for selection */}
                 {allImages.length > 0 && (
                     <Box sx={{ mt: 1 }}>
                         <Typography variant="subtitle2">
@@ -559,8 +557,8 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                     </Box>
                 )}
 
-                {/* Text Content */}
-                {item.content && (
+                {/* Text Content - Only show if item is selected */}
+                {selectedItems[item.id] && item.content && (
                     <Box sx={{
                         maxHeight: 200,
                         overflow: 'auto',
