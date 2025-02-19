@@ -180,32 +180,6 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
 
         return images;
     };
-    const getImageSelectAllState = (images: Array<{ file: File, id: string }>) => {
-        const totalImages = images.length;
-        const selectedCount = images.filter(({ id }) => selectedImages[id]).length;
-
-        return {
-            checked: selectedCount === totalImages && totalImages > 0,
-            indeterminate: selectedCount > 0 && selectedCount < totalImages,
-            selectedCount,
-            totalImages
-        };
-    };
-
-    const handleSelectAllImages = (checked: boolean) => {
-        const allImages = data.flatMap(group =>
-            group.items?.flatMap(item =>
-                collectItemImages(item)
-            ) || []
-        );
-
-        const newImageSelections = { ...selectedImages };
-        allImages.forEach(({ id }) => {
-            newImageSelections[id] = checked;
-        });
-
-        setSelectedImages(newImageSelections);
-    };
 
     const getSelectAllState = (items: ClipboardItem[], selectedItems: Record<string, boolean>, selectedImages: Record<string, boolean>) => {
         // Get all available images across all items
@@ -816,13 +790,16 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
 
             if (e.key === 'Escape') {
                 e.preventDefault();
+                e.stopPropagation();
                 onClose();
             } else if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                const selected = data.flatMap(group =>
-                    group.items?.filter(item => selectedItems[item.id]) || []
-                );
-                if (selected.length > 0) {
+                e.stopPropagation();
+
+                // Check if anything is selected (including markdown/html variants)
+                const hasSelections = Object.entries(selectedItems).some(([key, value]) => value) ||
+                    Object.entries(selectedImages).some(([key, value]) => value);
+                if (hasSelections) {
                     handleConfirm();
                 }
             }
@@ -830,7 +807,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
 
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [open, data, selectedItems, onClose, handleConfirm]);
+    }, [open, data, selectedItems, selectedImages, onClose, handleConfirm]);
 
     const selectAllState = getSelectAllState(allItems, selectedItems, selectedImages);
 

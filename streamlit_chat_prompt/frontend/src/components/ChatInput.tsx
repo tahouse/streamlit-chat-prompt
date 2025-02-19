@@ -555,7 +555,7 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
   }
 
   async handleKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
-    if (this.state.disabled) return;
+    if (this.state.disabled || this.state.clipboardInspector.open) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       await this.handleSubmit();
