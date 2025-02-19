@@ -6,6 +6,7 @@ export interface ExtractedImage {
     originalUrl: string;
     error?: string;
 }
+
 interface CodeBlock {
     html: string;          // Original HTML
     plainText: string;     // Clean text with preserved whitespace
@@ -13,6 +14,7 @@ interface CodeBlock {
     isInline: boolean;
     isStandalone: boolean;
 }
+
 function isStandaloneBlock(element: Element): boolean {
     // If it's a <code> element not in a <pre>, it's not standalone
     if (element.tagName === 'CODE' && !element.closest('pre')) {
@@ -39,6 +41,7 @@ function isStandaloneBlock(element: Element): boolean {
 
     return isTopLevel || (hasOnlyWhitespaceOrEmptySiblings && hasSurroundingWhitespace);
 }
+
 function isInlineCode(element: Element): boolean {
     const isInParagraph = !!element.closest('p');
     const hasLineBreaks = element.textContent?.includes('\n');
@@ -70,11 +73,13 @@ function isInlineCode(element: Element): boolean {
 
     return (isInParagraph || isShortSegment) && !hasLineBreaks;
 }
+
 export function decodeHtmlEntities(html: string): string {
     const textarea = document.createElement('textarea');
     textarea.innerHTML = html;
     return textarea.value;
 }
+
 export function isCodeBlock(element: Element): boolean {
     if (!(element instanceof HTMLElement)) return false;
 
@@ -150,10 +155,42 @@ export function extractCodeBlocks(html: string): CodeBlock[] {
     return codeBlocks;
 }
 
+async function tryImageFetch(src: string): Promise<Response> {
+    const isLocalStreamlit = src.startsWith('http://localhost:8501/');
+
+    if (isLocalStreamlit) {
+        // For Streamlit resources, use no-cors immediately
+        // since we can't modify Streamlit's CORS headers
+        return fetch(src, {
+            mode: 'no-cors',
+            credentials: 'include',
+            headers: {
+                'Accept': 'image/*'
+            }
+        });
+    }
+
+    // For non-local resources, try normal fetch first
+    try {
+        const response = await fetch(src, {
+            mode: 'cors',
+            credentials: 'same-origin'
+        });
+        if (!response.ok && response.status !== 304) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        return response;
+    } catch (error) {
+        throw error;
+    }
+}
+
 export async function extractImagesFromHtml(html: string): Promise<ExtractedImage[]> {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
-    const images: ExtractedImage[] = [];
+    const regularImages: ExtractedImage[] = [];
+    const svgImages: ExtractedImage[] = [];
+
 
     // Get all elements that could contain images in document order
     const elements = Array.from(doc.body.querySelectorAll('*'));
@@ -177,16 +214,43 @@ export async function extractImagesFromHtml(html: string): Promise<ExtractedImag
 
                         const byteArray = new Uint8Array(byteNumbers);
                         const blob = new Blob([byteArray], { type: mimeType });
-                        const filename = `inline-image-${images.length}.${mimeType.split('/')[1]}`;
+                        const filename = `inline-image-${regularImages.length}.${mimeType.split('/')[1]}`;
                         const file = new File([blob], filename, { type: mimeType });
 
-                        images.push({
+                        regularImages.push({
                             file,
-                            originalUrl: `[embedded-image-${images.length}]` // Use placeholder as reference
+                            originalUrl: `[embedded-image-${regularImages.length}]` // Use placeholder as reference
                         });
                         continue;
                     }
 
+                    // Try direct download first
+                    try {
+                        Logger.debug('images', `Attempting to fetch ${src}`);
+                        const response = await tryImageFetch(src);
+
+                        // Even with no-cors (opaque response), we can still get the blob
+                        const blob = await response.blob();
+                        if (blob.size > 0) {
+                            const filename = src.split('/').pop() || 'image.png';
+                            const file = new File([blob], filename, { type: blob.type || 'image/png' });
+                            regularImages.push({
+                                file,
+                                originalUrl: src
+                            });
+                            continue;
+                        }
+
+                        throw new Error('Retrieved blob was empty');
+                    } catch (error) {
+                        if (src.startsWith('http://localhost:8501/')) {
+                            Logger.warn('images', `Failed to load local Streamlit file: ${src}`, error);
+                            continue; // Skip proxy attempts for local files
+                        }
+                        Logger.debug('images', `Direct download failed for ${src}, trying proxies`, error);
+                    }
+
+                    // Fall back to proxies if direct download fails
                     const corsProxies = [
                         (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
                         (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
@@ -208,14 +272,14 @@ export async function extractImagesFromHtml(html: string): Promise<ExtractedImag
                     }
 
                     if (!response?.ok) {
-                        throw proxyError || new Error('All proxies failed');
+                        throw proxyError || new Error('All download attempts failed');
                     }
 
                     const blob = await response.blob();
                     const filename = src.split('/').pop() || 'image.png';
                     const file = new File([blob], filename, { type: blob.type || 'image/png' });
 
-                    images.push({
+                    regularImages.push({
                         file,
                         originalUrl: src
                     });
@@ -224,7 +288,7 @@ export async function extractImagesFromHtml(html: string): Promise<ExtractedImag
                     Logger.warn('images', `Failed to load image from ${src}:`, error);
                     const placeholderBlob = new Blob(['[Image could not be loaded]'], { type: 'text/plain' });
                     const placeholderFile = new File([placeholderBlob], 'failed-image.txt', { type: 'text/plain' });
-                    images.push({
+                    regularImages.push({
                         file: placeholderFile,
                         originalUrl: src,
                         error: error instanceof Error ? error.message : 'Unknown error'
@@ -239,7 +303,7 @@ export async function extractImagesFromHtml(html: string): Promise<ExtractedImag
                 const svgString = serializer.serializeToString(element);
                 const blob = new Blob([svgString], { type: 'image/svg+xml' });
                 const file = new File([blob], 'image.svg', { type: 'image/svg+xml' });
-                images.push({ file, originalUrl: 'inline-svg' });
+                svgImages.push({ file, originalUrl: 'inline-svg' });
             } catch (error) {
                 Logger.warn('images', 'Failed to convert SVG:', error);
             }
@@ -254,7 +318,7 @@ export async function extractImagesFromHtml(html: string): Promise<ExtractedImag
                     const blob = await response.blob();
                     const filename = bgUrl.split('/').pop() || 'background.png';
                     const file = new File([blob], filename, { type: blob.type });
-                    images.push({ file, originalUrl: bgUrl });
+                    regularImages.push({ file, originalUrl: bgUrl });
                 } catch (error) {
                     Logger.warn('images', `Failed to fetch background image from ${bgUrl}:`, error);
                 }
@@ -262,12 +326,12 @@ export async function extractImagesFromHtml(html: string): Promise<ExtractedImag
         }
     }
 
-    return images;
+    return [...regularImages, ...svgImages];
 }
 
 export function cleanBase64ImagesFromContent(content: string, imageCount: number): string {
     let cleanContent = content;
-    let currentIndex = imageCount; // Start from the provided count
+    let currentIndex = 0; // Start from the provided count
 
     // Match markdown image tags with base64 data
     const regex = /!\[.*?\]\(data:image\/[^;]+;base64,[^)]+\)/g;

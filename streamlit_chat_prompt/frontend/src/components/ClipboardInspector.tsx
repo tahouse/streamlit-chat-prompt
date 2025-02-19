@@ -14,9 +14,7 @@ import {
     IconButton,
     ImageList,
     ImageListItem,
-    Paper,
-    Stack,
-    Typography
+    Stack
 } from '@mui/material';
 import React, { useEffect, useState } from 'react';
 import { Theme } from 'streamlit-component-lib';
@@ -74,7 +72,7 @@ export const DIALOG_HEIGHTS = {
     DIALOG_CONTENT: 500,
     BASE_PADDING: 50
 } as const;
-// Use the content types in type checking
+
 export const CONTENT_TYPE_GROUPS = {
     IMAGE: 'image/',
     TEXT: 'text/plain',
@@ -156,6 +154,50 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
     const [markdownConversion, setMarkdownConversion] = useState<Record<string, boolean>>({});
     const turndownService = React.useMemo(() => createTurndownService(), []);
     const [showSvgs, setShowSvgs] = useState<Record<string, boolean>>({});
+    const [previewContent, setPreviewContent] = useState<Record<string, string>>({});
+    const allItems = data.flatMap(group => group.items || []);
+
+    const collectItemImages = (item: ClipboardItem) => {
+        const images: Array<{ file: File, id: string }> = [];
+
+        // Add direct image files
+        if (item.type.startsWith(CONTENT_TYPE_GROUPS.IMAGE) && item.as_file) {
+            images.push({ file: item.as_file, id: `${item.id}-direct` });
+        }
+
+        // Add extracted images
+        const itemImages = extractedImages[item.id] || [];
+        const filteredImages = showSvgs[item.id]
+            ? itemImages
+            : itemImages.filter(img => !img.originalUrl.startsWith('inline-svg'));
+
+        images.push(...filteredImages.map((img, idx) => ({
+            file: img.file,
+            id: `${item.id}-${idx}`
+        })));
+
+        return images;
+    };
+
+    const getSelectAllState = (items: ClipboardItem[], selectedItems: Record<string, boolean>, selectedImages: Record<string, boolean>) => {
+        // Get all available images across all items
+        const allImages = items.flatMap(item => collectItemImages(item));
+
+        // Count total selectable items (content items + images)
+        const totalItems = items.length + allImages.length;
+
+        // Count selected items (content + images)
+        const selectedCount =
+            items.filter(item => selectedItems[item.id]).length +
+            allImages.filter(({ id }) => selectedImages[id]).length;
+
+        return {
+            checked: selectedCount === totalItems && totalItems > 0,
+            indeterminate: selectedCount > 0 && selectedCount < totalItems,
+            selectedCount
+        };
+    };
+
     useEffect(() => {
         if (open) {
             // Automatically process HTML content and convert to markdown
@@ -226,21 +268,33 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             ...newSelectedImages
         }));
     };
+
     const handleSelectAll = (checked: boolean) => {
         setSelectAll(checked);
+
+        // Handle content items
         const newSelected: Record<string, boolean> = {};
+
+        // Handle image selections
+        const newImageSelections: Record<string, boolean> = {};
+
+        // Collect all items and their images
         data.forEach(group => {
             group.items?.forEach(item => {
+                // Select/deselect the content item
                 newSelected[item.id] = checked;
+
+                // Select/deselect all images associated with this item
+                const images = collectItemImages(item);
+                images.forEach(({ id }) => {
+                    newImageSelections[id] = checked;
+                });
             });
         });
+
+        // Update both states at once
         setSelectedItems(newSelected);
-    };
-    const handleExtractSvgs = (itemId: string) => {
-        setShowSvgs(prev => ({
-            ...prev,
-            [itemId]: true
-        }));
+        setSelectedImages(newImageSelections);
     };
 
     const handleSelectItem = (itemId: string, checked: boolean) => {
@@ -249,7 +303,6 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             [itemId]: checked
         }));
     };
-
 
     const handleMarkdownConversion = (itemId: string, checked: boolean) => {
         setMarkdownConversion(prev => ({
@@ -265,7 +318,6 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             }));
         }
     };
-
 
     const generateMarkdownPreview = React.useMemo(() => (html: string, itemId: string) => {
         Logger.info('component', 'Starting markdown preview generation for HTML:', {
@@ -288,7 +340,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
 
         let workingHtml = html;
 
-        // Create temporary placeholders for code blocks
+        // Step 2: Create temporary placeholders for code blocks
         codeBlocks.forEach((block, index) => {
             // Only replace full code blocks with placeholders
             if (block.isStandalone) {
@@ -298,7 +350,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             // Leave inline code in place to be handled by turndown service
         });
 
-        // Step 2: Convert remaining HTML to markdown
+        // Step 3: Convert remaining HTML to markdown
         let markdown = turndownService.turndown(workingHtml);
 
         Logger.debug('component', 'After markdown conversion:', {
@@ -317,7 +369,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             markdown,
         });
 
-        // Step 3: Replace placeholders with properly formatted code blocks
+        // Step 4: Replace placeholders with properly formatted code blocks
         let finalMarkdown = markdown;
         codeBlocks.forEach((block, index) => {
             const placeholder = `[CODEBLOCK${index}]`;
@@ -368,8 +420,6 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                 markdownPreview: finalMarkdown.substring(0, 100) + '...'
             });
         });
-
-        // After all replacements
         const remainingPlaceholders = finalMarkdown.match(/\[CODEBLOCK\d+\]/g);
         Logger.debug('component', 'Final check:', {
             remainingPlaceholders,
@@ -380,41 +430,82 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             Logger.warn('component', 'Remaining placeholders:', remainingPlaceholders);
         }
 
-        // Step 5: Handle already extracted images
+        // Step 5: Handle images
         const itemImages = extractedImages[itemId] || [];
         const selectedItemImages = itemImages.filter((_, idx) =>
             selectedImages[`${itemId}-${idx}`]
         );
 
+        // First, remove all image references from the markdown
+        finalMarkdown = finalMarkdown.replace(/!\[(?:.*?)\](?:\[.*?\]|\(.*?\))/g, '');
+
+        // Then, only add back the selected images
         selectedItemImages.forEach((image, idx) => {
             if (!image.originalUrl.startsWith('inline-svg')) {
-                const imgRegex = new RegExp(
-                    `!\\[.*?\\]\\(${image.originalUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)`,
-                    'g'
+                // Find the original position of this image in the HTML
+                const tempDoc = document.createElement('div');
+                tempDoc.innerHTML = html;
+                const allImages = Array.from(tempDoc.querySelectorAll('img'));
+                const imageIndex = allImages.findIndex(img =>
+                    img.src === image.originalUrl ||
+                    img.getAttribute('data-original-url') === image.originalUrl
                 );
-                finalMarkdown = finalMarkdown.replace(
-                    imgRegex,
-                    `![Original: ${image.originalUrl}][${idx}]`
-                );
+
+                if (imageIndex !== -1) {
+                    // Try to insert the image reference close to its original position
+                    const beforeText = finalMarkdown.slice(0, Math.floor(finalMarkdown.length * (imageIndex / allImages.length)));
+                    const afterText = finalMarkdown.slice(Math.floor(finalMarkdown.length * (imageIndex / allImages.length)));
+
+                    finalMarkdown = `${beforeText}![image-${idx}][${idx}]${afterText}`;
+                } else {
+                    // If we can't determine position, append to the end of the nearest paragraph
+                    finalMarkdown = finalMarkdown.replace(/(\n\n|\n$)/, `\n\n![image-${idx}][${idx}]$1`);
+                }
             }
         });
 
-        // Add image references if needed
+        // Clean up multiple newlines
+        finalMarkdown = finalMarkdown
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+
+        // Add image references only for selected images
         if (selectedItemImages.length > 0) {
-            finalMarkdown += '\n\n';
+            finalMarkdown += '\n\n<image-attachments>\n';
             selectedItemImages.forEach((_, idx) => {
-                finalMarkdown += `[${idx}]: attachment:${idx}\n`;
+                finalMarkdown += `  <attachment id="${idx}" />\n`;
             });
+            finalMarkdown += '</image-attachments>';
         }
 
         return finalMarkdown;
     }, [extractedImages, selectedImages, turndownService]);
 
+    useEffect(() => {
+        // Update markdown preview for each HTML item when selections change
+        data.forEach(group => {
+            group.items?.forEach(item => {
+                if (item.type === CONTENT_TYPE_GROUPS.HTML &&
+                    markdownConversion[item.id] &&
+                    item.content) {
 
-    const handleConfirm = () => {
+                    const updatedMarkdown = generateMarkdownPreview(
+                        item.content.toString(),
+                        item.id
+                    );
+
+                    setPreviewContent(prev => ({
+                        ...prev,
+                        [item.id]: updatedMarkdown
+                    }));
+                }
+            });
+        });
+    }, [selectedImages, markdownConversion, generateMarkdownPreview, data]);
+
+    const handleConfirm = React.useCallback(() => {
         const selected = data.flatMap(group =>
             group.items?.filter(item => selectedItems[item.id]).map(item => {
-                // Get all selected images for this item
                 let selectedItemImages: ExtractedImage[] = [];
 
                 // Handle direct image files
@@ -424,20 +515,21 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
 
                 // Handle extracted images from HTML
                 const extractedItemImages = extractedImages[item.id] || [];
-                const selectedExtractedImages = extractedItemImages.filter((_, idx) =>
+                const filteredImages = showSvgs
+                    ? extractedItemImages
+                    : extractedItemImages.filter(img => !img.originalUrl.startsWith('inline-svg'));
+
+                const selectedExtractedImages = filteredImages.filter((_, idx) =>
                     selectedImages[`${item.id}-${idx}`]
                 );
                 selectedItemImages = [...selectedItemImages, ...selectedExtractedImages];
 
                 if (item.type === CONTENT_TYPE_GROUPS.HTML && markdownConversion[item.id]) {
-                    // Generate markdown content ONCE and store it
                     const markdownContent = generateMarkdownPreview(item.content?.toString() || '', item.id);
-                    Logger.debug('component', 'Generated markdown content:', markdownContent);  // Debug log
-
                     return {
                         ...item,
-                        content: markdownContent,  // Use the stored content
-                        convertToMarkdown: false,  // Set to false since we've already converted
+                        content: markdownContent,
+                        convertToMarkdown: false,
                         extractedImages: selectedItemImages
                     };
                 }
@@ -449,7 +541,6 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             }) || []
         );
 
-        Logger.debug('component', 'Selected items with images:', selected);
         onSelect(selected);
         onClose();
 
@@ -459,54 +550,157 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             setSelectedItems({});
             setSelectAll(false);
             setMarkdownConversion({});
+            setShowSvgs({});
         }, 100);
-    };
+    }, [data, selectedItems, selectedImages, showSvgs, markdownConversion, generateMarkdownPreview, extractedImages, onSelect, onClose]);
 
     const renderContentPreview = (item: ClipboardItem) => {
-        const allImages: { file: File, id: string }[] = [];
-
-        if (item.type.startsWith(CONTENT_TYPE_GROUPS.IMAGE) && item.as_file) {
-            allImages.push({ file: item.as_file, id: `${item.id}-direct` });
-        }
-
-        const itemImages = extractedImages[item.id] || [];
-        const filteredImages = showSvgs[item.id] ? itemImages : itemImages.filter(img => !img.originalUrl.startsWith('inline-svg'));
-        allImages.push(...filteredImages.map((img, idx) => ({ file: img.file, id: `${item.id}-${idx}` })));
-
         return (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}> {/* Reduced gap from 1 to 0.5 */}
-                {allImages.length > 0 && (
-                    <Box sx={{ mt: .5 }}>
-                        <Typography variant="subtitle2">{item.type.startsWith(CONTENT_TYPE_GROUPS.IMAGE) ? 'Image:' : 'Images'}</Typography>
-                        <ImageList sx={{ maxHeight: 120 }} cols={4} rowHeight={80}>
-                            {allImages.map(({ file, id }) => (
-                                <ImageListItem key={id} sx={{ position: 'relative' }}>
-                                    <FormControlLabel
-                                        control={
-                                            <Checkbox size="small" checked={selectedImages[id] || false}
-                                                onChange={(e) => setSelectedImages(prev => ({ ...prev, [id]: e.target.checked }))} />
-                                        }
-                                        label=""
-                                        sx={{ position: 'absolute', top: 0, right: 0, zIndex: 1, m: 0 }}
-                                    />
-                                    <img src={URL.createObjectURL(file)} alt={id} style={{ objectFit: 'cover', height: '80px', width: '100%' }}
-                                        onLoad={(e) => URL.revokeObjectURL((e.target as HTMLImageElement).src)} />
-                                </ImageListItem>
-                            ))}
-                        </ImageList>
-                    </Box>
-                )}
-
-                {selectedItems[item.id] && item.content && (
-                    <Box sx={{ maxHeight: 200, overflow: 'auto', p: 1, bgcolor: 'background.paper', borderRadius: 1, whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
-                        {item.type === CONTENT_TYPE_GROUPS.HTML ?
-                            (markdownConversion[item.id] ? generateMarkdownPreview(item.content.toString(), item.id) : item.content.toString()) :
-                            item.content.toString()}
-                    </Box>
-                )}
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                {renderTextContent(item)}
             </Box>
         );
     };
+
+    const renderImagePreview = (images: Array<{ file: File, id: string }>) => {
+        if (!images.length) return null;
+
+        return (
+            <Box sx={{ mt: .5 }}>
+                <ImageList sx={{ maxHeight: 120 }} cols={4} rowHeight={80}>
+                    {images.map(({ file, id }) => (
+                        <ImageListItem key={id} sx={{ position: 'relative' }}>
+                            <FormControlLabel
+                                control={
+                                    <Checkbox
+                                        size="small"
+                                        checked={selectedImages[id] || false}
+                                        onChange={(e) => setSelectedImages(prev => ({
+                                            ...prev,
+                                            [id]: e.target.checked
+                                        }))}
+                                    />
+                                }
+                                label=""
+                                sx={{
+                                    position: 'absolute', top: 0, right: 0, zIndex: 1, m: 0, backgroundColor: 'rgba(255, 255, 255, 0.8)', // semi-transparent white background
+                                    borderRadius: '4px',
+                                    '& .MuiCheckbox-root': {
+                                        padding: '4px',
+                                        // Add contrasting border
+                                        '&:hover': {
+                                            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                                        },
+                                    },
+                                    // Add subtle shadow for better visibility
+                                    boxShadow: '0 0 3px rgba(0, 0, 0, 0.2)',
+                                }}
+                            />
+                            <img
+                                src={URL.createObjectURL(file)}
+                                alt={id}
+                                style={{ objectFit: 'cover', height: '80px', width: '100%' }}
+                                onLoad={(e) => URL.revokeObjectURL((e.target as HTMLImageElement).src)}
+                            />
+                        </ImageListItem>
+                    ))}
+                </ImageList>
+            </Box>
+        );
+    };
+
+    const handleExtractSvgs = (itemId: string) => {
+        setShowSvgs(prev => ({
+            ...prev,
+            [itemId]: true
+        }));
+    };
+
+    const renderTextContent = (item: ClipboardItem) => {
+        if (!selectedItems[item.id] || !item.content) return null;
+
+        return (
+            <Box sx={{
+                maxHeight: 200,
+                overflow: 'auto',
+                p: 1,
+                bgcolor: 'background.paper',
+                borderRadius: 1,
+                whiteSpace: 'pre-wrap',
+                fontFamily: 'monospace'
+            }}>
+                {item.type === CONTENT_TYPE_GROUPS.HTML
+                    ? (markdownConversion[item.id]
+                        ? previewContent[item.id] || 'Processing...'
+                        : item.content.toString())
+                    : item.content.toString()}
+            </Box>
+        );
+    };
+
+    const renderItemControls = (item: ClipboardItem) => (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <FormControlLabel
+                control={
+                    <Checkbox
+                        checked={selectedItems[item.id] || false}
+                        onChange={(e) => handleSelectItem(item.id, e.target.checked)}
+                    />
+                }
+                label={
+                    item.type === CONTENT_TYPE_GROUPS.HTML
+                        ? (markdownConversion[item.id] ? 'text/markdown' : 'text/html')
+                        : item.type
+                }
+            />
+            {item.type === CONTENT_TYPE_GROUPS.HTML && (
+                <>
+                    <FormControlLabel
+                        control={
+                            <Checkbox
+                                checked={markdownConversion[item.id] ?? true}
+                                onChange={(e) => handleMarkdownConversion(item.id, e.target.checked)}
+                            />
+                        }
+                        label="Convert to Markdown"
+                    />
+                    {!showSvgs[item.id] && (
+                        <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => handleExtractSvgs(item.id)}
+                        >
+                            Extract SVGs
+                        </Button>
+                    )}
+                </>
+            )}
+        </Box>
+    );
+
+    React.useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (!open) return;
+
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                onClose();
+            } else if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                const selected = data.flatMap(group =>
+                    group.items?.filter(item => selectedItems[item.id]) || []
+                );
+                if (selected.length > 0) {
+                    handleConfirm();
+                }
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [open, data, selectedItems, onClose, handleConfirm]);
+
+    const selectAllState = getSelectAllState(allItems, selectedItems, selectedImages);
 
     return (
         <Dialog
@@ -515,104 +709,58 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             maxWidth="md"
             fullWidth
             PaperProps={{
-                sx: {
-                    maxHeight: DIALOG_HEIGHTS.CLIPBOARD_INSPECTOR_MAX,
-                    height: DIALOG_HEIGHTS.CLIPBOARD_INSPECTOR,
-                    margin: '16px', // Add margin around the dialog
-                    width: 'calc(100% - 32px)', // Adjust width to account for margins
-                    position: 'relative', // Ensure proper positioning
-                    overflow: 'hidden' // Prevent content overflow
-                }
+                sx: { maxHeight: DIALOG_HEIGHTS.CLIPBOARD_INSPECTOR }
             }}
         >
             <DialogTitle sx={{
-                pb: 1, px: 3, // Increase horizontal padding
-                pt: 2 // Increase top padding
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
             }}>
                 Select Content to Include
-                <IconButton
-                    onClick={onClose}
-                    sx={{ position: 'absolute', right: 8, top: 8 }}
-                >
+                <IconButton onClick={onClose}>
                     <CloseIcon />
                 </IconButton>
             </DialogTitle>
 
-            <DialogContent sx={{
-                height: DIALOG_HEIGHTS.DIALOG_CONTENT, overflowY: 'auto',
-                px: 3, // Increase horizontal padding
-                pb: 3  // Increase bottom padding
-            }}>
-                <Box sx={{ mb: 2 }}> {/* Remove height, just add margin bottom */}
-                    <FormControlLabel
-                        control={
-                            <Checkbox
-                                checked={selectAll}
-                                onChange={(e) => handleSelectAll(e.target.checked)}
-                            />
-                        }
-                        label="Select All"
-                    />
-                </Box>
-
-                <Stack spacing={2}>
-                    {data.map((group, groupIdx) => (
-                        <Paper key={groupIdx} variant="outlined" sx={{ p: 1.5 }}>
-                            <Typography variant="h6" sx={{ mb: 1 }}>
-                                {group.type}
-                            </Typography>
-
-                            {group.items?.map((item) => (
-                                <Box key={item.id} sx={{ mb: 1 }}>
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                        <FormControlLabel
-                                            control={
-                                                <Checkbox
-                                                    checked={selectedItems[item.id] || false}
-                                                    onChange={(e) => handleSelectItem(item.id, e.target.checked)}
-                                                />
-                                            }
-                                            label={
-                                                item.type === CONTENT_TYPE_GROUPS.HTML
-                                                    ? (markdownConversion[item.id] ? 'text/markdown' : 'text/html')
-                                                    : item.type
-                                            }
-                                        />
-                                        {item.type === CONTENT_TYPE_GROUPS.HTML && (
-                                            <>
-                                                <FormControlLabel
-                                                    control={
-                                                        <Checkbox
-                                                            checked={markdownConversion[item.id] ?? true}
-                                                            onChange={(e) => handleMarkdownConversion(item.id, e.target.checked)}
-                                                        />
-                                                    }
-                                                    label="Convert to Markdown"
-                                                />
-                                                {!showSvgs[item.id] && (
-                                                    <Button
-                                                        size="small"
-                                                        variant="outlined"
-                                                        onClick={() => handleExtractSvgs(item.id)}
-                                                    >
-                                                        Extract SVGs
-                                                    </Button>
-                                                )}
-                                            </>
-                                        )}
-                                    </Box>
-                                    {renderContentPreview(item)}
-                                </Box>
-                            ))}
-                        </Paper>
+            <DialogContent sx={{ p: 2 }}>
+                <Stack spacing={1}>
+                    <Box sx={{ mb: 1 }}>
+                        <FormControlLabel
+                            control={
+                                <Checkbox
+                                    checked={selectAllState.checked}
+                                    indeterminate={selectAllState.indeterminate}
+                                    onChange={() => {
+                                        // If nothing or only some items are selected, select all
+                                        // If all items are selected, select none
+                                        const shouldSelectAll = selectAllState.selectedCount < allItems.length;
+                                        handleSelectAll(shouldSelectAll);
+                                    }} />
+                            }
+                            label="Select All"
+                        />
+                    </Box>
+                    {/* Display all images first */}
+                    {renderImagePreview(data.flatMap(group =>
+                        group.items?.flatMap(item =>
+                            collectItemImages(item)
+                        ) || []
                     ))}
+
+                    {/* Then display other content */}
+                    {data.map(group =>
+                        group.items?.map(item => (
+                            <Box key={item.id} sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                {renderItemControls(item)}
+                                {renderContentPreview(item)}
+                            </Box>
+                        ))
+                    )}
                 </Stack>
             </DialogContent>
 
-            <DialogActions sx={{
-                px: 3, // Increase horizontal padding
-                pb: 2  // Increase bottom padding
-            }}>
+            <DialogActions>
                 <Button onClick={onClose}>Cancel</Button>
                 <Button
                     variant="contained"
@@ -622,6 +770,6 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                     Add Selected
                 </Button>
             </DialogActions>
-        </Dialog >
+        </Dialog>
     );
 };
