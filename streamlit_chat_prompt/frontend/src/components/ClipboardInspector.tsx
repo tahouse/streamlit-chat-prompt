@@ -10,12 +10,14 @@ import {
     DialogActions,
     DialogContent,
     DialogTitle,
+    Divider,
     FormControlLabel,
     IconButton,
     ImageList,
     ImageListItem,
     Stack
 } from '@mui/material';
+
 import React, { useEffect, useState } from 'react';
 import { Theme } from 'streamlit-component-lib';
 import TurndownService from 'turndown';
@@ -178,18 +180,57 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
 
         return images;
     };
+    const getImageSelectAllState = (images: Array<{ file: File, id: string }>) => {
+        const totalImages = images.length;
+        const selectedCount = images.filter(({ id }) => selectedImages[id]).length;
+
+        return {
+            checked: selectedCount === totalImages && totalImages > 0,
+            indeterminate: selectedCount > 0 && selectedCount < totalImages,
+            selectedCount,
+            totalImages
+        };
+    };
+
+    const handleSelectAllImages = (checked: boolean) => {
+        const allImages = data.flatMap(group =>
+            group.items?.flatMap(item =>
+                collectItemImages(item)
+            ) || []
+        );
+
+        const newImageSelections = { ...selectedImages };
+        allImages.forEach(({ id }) => {
+            newImageSelections[id] = checked;
+        });
+
+        setSelectedImages(newImageSelections);
+    };
 
     const getSelectAllState = (items: ClipboardItem[], selectedItems: Record<string, boolean>, selectedImages: Record<string, boolean>) => {
         // Get all available images across all items
         const allImages = items.flatMap(item => collectItemImages(item));
 
-        // Count total selectable items (content items + images)
-        const totalItems = items.length + allImages.length;
+        // Count total selectable items and selected items
+        let totalItems = 0;
+        let selectedCount = 0;
 
-        // Count selected items (content + images)
-        const selectedCount =
-            items.filter(item => selectedItems[item.id]).length +
-            allImages.filter(({ id }) => selectedImages[id]).length;
+        items.forEach(item => {
+            if (item.type === CONTENT_TYPE_GROUPS.HTML) {
+                // HTML items have two possible selections (markdown and html)
+                totalItems += 2; // Count both markdown and html options
+                if (selectedItems[`${item.id}-markdown`]) selectedCount++;
+                if (selectedItems[`${item.id}-html`]) selectedCount++;
+            } else {
+                // Non-HTML items have one selection
+                totalItems += 1;
+                if (selectedItems[item.id]) selectedCount++;
+            }
+        });
+
+        // Add image counts
+        totalItems += allImages.length;
+        selectedCount += allImages.filter(({ id }) => selectedImages[id]).length;
 
         return {
             checked: selectedCount === totalItems && totalItems > 0,
@@ -204,25 +245,29 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             data.forEach(group => {
                 group.items?.forEach(item => {
                     // Pre-select HTML items and images, but not plain text
-                    if (item.type === CONTENT_TYPE_GROUPS.HTML ||
-                        item.type.startsWith(CONTENT_TYPE_GROUPS.IMAGE)) {
+                    if (item.type === CONTENT_TYPE_GROUPS.HTML) {
+                        // Select markdown by default for HTML content
                         setSelectedItems(prev => ({
                             ...prev,
-                            [item.id]: true
+                            [`${item.id}-markdown`]: true,
+                            [`${item.id}-html`]: false
                         }));
-                    }
 
-                    // Auto-convert HTML to markdown
-                    if (item.type === CONTENT_TYPE_GROUPS.HTML) {
+                        // Auto-convert HTML to markdown
                         setMarkdownConversion(prev => ({
                             ...prev,
                             [item.id]: true
                         }));
-                    }
 
-                    // Process HTML content for images
-                    if (item.type === CONTENT_TYPE_GROUPS.HTML && item.content) {
-                        processHtmlContent(item.id, item.content.toString());
+                        // Process HTML content for images
+                        if (item.content) {
+                            processHtmlContent(item.id, item.content.toString());
+                        }
+                    } else if (item.type.startsWith(CONTENT_TYPE_GROUPS.IMAGE)) {
+                        setSelectedItems(prev => ({
+                            ...prev,
+                            [item.id]: true
+                        }));
                     }
                 });
             });
@@ -272,19 +317,31 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
     const handleSelectAll = (checked: boolean) => {
         setSelectAll(checked);
 
-        // Handle content items
+        // Create new state objects
         const newSelected: Record<string, boolean> = {};
-
-        // Handle image selections
         const newImageSelections: Record<string, boolean> = {};
 
-        // Collect all items and their images
+        // Process all items
         data.forEach(group => {
             group.items?.forEach(item => {
-                // Select/deselect the content item
-                newSelected[item.id] = checked;
+                if (item.type === CONTENT_TYPE_GROUPS.HTML) {
+                    // For HTML items, select both markdown and html versions
+                    newSelected[`${item.id}-markdown`] = checked;
+                    newSelected[`${item.id}-html`] = checked;
 
-                // Select/deselect all images associated with this item
+                    // If selecting all, also enable markdown conversion
+                    if (checked) {
+                        setMarkdownConversion(prev => ({
+                            ...prev,
+                            [item.id]: true
+                        }));
+                    }
+                } else {
+                    // For non-HTML items, select normally
+                    newSelected[item.id] = checked;
+                }
+
+                // Handle all associated images
                 const images = collectItemImages(item);
                 images.forEach(({ id }) => {
                     newImageSelections[id] = checked;
@@ -302,21 +359,6 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             ...prev,
             [itemId]: checked
         }));
-    };
-
-    const handleMarkdownConversion = (itemId: string, checked: boolean) => {
-        setMarkdownConversion(prev => ({
-            ...prev,
-            [itemId]: checked
-        }));
-
-        // Only auto-select if enabling markdown
-        if (checked && !selectedItems[itemId]) {
-            setSelectedItems(prev => ({
-                ...prev,
-                [itemId]: true
-            }));
-        }
     };
 
     const generateMarkdownPreview = React.useMemo(() => (html: string, itemId: string) => {
@@ -505,17 +547,26 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
 
     const handleConfirm = React.useCallback(() => {
         const selected = data.flatMap(group =>
-            group.items?.filter(item => selectedItems[item.id]).map(item => {
+            group.items?.filter(item => {
+                if (item.type === CONTENT_TYPE_GROUPS.HTML) {
+                    // Include if either markdown or html is selected
+                    return selectedItems[`${item.id}-markdown`] ||
+                        selectedItems[`${item.id}-html`];
+                }
+                return selectedItems[item.id];
+            }).map(item => {
                 let selectedItemImages: ExtractedImage[] = [];
 
                 // Handle direct image files
-                if (item.type.startsWith(CONTENT_TYPE_GROUPS.IMAGE) && item.as_file && selectedImages[`${item.id}-direct`]) {
+                if (item.type.startsWith(CONTENT_TYPE_GROUPS.IMAGE) &&
+                    item.as_file &&
+                    selectedImages[`${item.id}-direct`]) {
                     selectedItemImages.push({ file: item.as_file, originalUrl: '' });
                 }
 
                 // Handle extracted images from HTML
                 const extractedItemImages = extractedImages[item.id] || [];
-                const filteredImages = showSvgs
+                const filteredImages = showSvgs[item.id]
                     ? extractedItemImages
                     : extractedItemImages.filter(img => !img.originalUrl.startsWith('inline-svg'));
 
@@ -524,14 +575,21 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                 );
                 selectedItemImages = [...selectedItemImages, ...selectedExtractedImages];
 
-                if (item.type === CONTENT_TYPE_GROUPS.HTML && markdownConversion[item.id]) {
-                    const markdownContent = generateMarkdownPreview(item.content?.toString() || '', item.id);
-                    return {
-                        ...item,
-                        content: markdownContent,
-                        convertToMarkdown: false,
-                        extractedImages: selectedItemImages
-                    };
+                // For HTML content, create separate markdown/html versions based on selection
+                if (item.type === CONTENT_TYPE_GROUPS.HTML) {
+                    if (selectedItems[`${item.id}-markdown`]) {
+                        return {
+                            ...item,
+                            content: previewContent[item.id],
+                            convertToMarkdown: false,
+                            extractedImages: selectedItemImages
+                        };
+                    } else {
+                        return {
+                            ...item,
+                            extractedImages: selectedItemImages
+                        };
+                    }
                 }
 
                 return {
@@ -552,21 +610,53 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             setMarkdownConversion({});
             setShowSvgs({});
         }, 100);
-    }, [data, selectedItems, selectedImages, showSvgs, markdownConversion, generateMarkdownPreview, extractedImages, onSelect, onClose]);
+    }, [data, selectedItems, selectedImages, showSvgs, previewContent, extractedImages, onSelect, onClose]);
 
-    const renderContentPreview = (item: ClipboardItem) => {
-        return (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                {renderTextContent(item)}
-            </Box>
-        );
-    };
+
 
     const renderImagePreview = (images: Array<{ file: File, id: string }>) => {
         if (!images.length) return null;
 
+        const imageState = {
+            totalImages: images.length,
+            selectedCount: images.filter(({ id }) => selectedImages[id]).length,
+            get checked() {
+                return this.selectedCount === this.totalImages;
+            },
+            get indeterminate() {
+                return this.selectedCount > 0 && this.selectedCount < this.totalImages;
+            }
+        };
+
         return (
             <Box sx={{ mt: .5 }}>
+                <Box sx={{
+                    mb: 1,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                }}>
+                    <Box sx={{ typography: 'body1' }}>
+                        Images
+                    </Box>
+                    <FormControlLabel
+                        control={
+                            <Checkbox
+                                size="small"
+                                checked={imageState.checked}
+                                indeterminate={imageState.indeterminate}
+                                onChange={(e) => {
+                                    const newSelections = { ...selectedImages };
+                                    images.forEach(({ id }) => {
+                                        newSelections[id] = e.target.checked;
+                                    });
+                                    setSelectedImages(newSelections);
+                                }}
+                            />
+                        }
+                        label={`Select All Images (${imageState.selectedCount}/${imageState.totalImages})`}
+                    />
+                </Box>
                 <ImageList sx={{ maxHeight: 120 }} cols={4} rowHeight={80}>
                     {images.map(({ file, id }) => (
                         <ImageListItem key={id} sx={{ position: 'relative' }}>
@@ -583,16 +673,19 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                                 }
                                 label=""
                                 sx={{
-                                    position: 'absolute', top: 0, right: 0, zIndex: 1, m: 0, backgroundColor: 'rgba(255, 255, 255, 0.8)', // semi-transparent white background
+                                    position: 'absolute',
+                                    top: 0,
+                                    right: 0,
+                                    zIndex: 1,
+                                    m: 0,
+                                    backgroundColor: 'rgba(255, 255, 255, 0.8)',
                                     borderRadius: '4px',
                                     '& .MuiCheckbox-root': {
                                         padding: '4px',
-                                        // Add contrasting border
                                         '&:hover': {
                                             backgroundColor: 'rgba(255, 255, 255, 0.9)',
                                         },
                                     },
-                                    // Add subtle shadow for better visibility
                                     boxShadow: '0 0 3px rgba(0, 0, 0, 0.2)',
                                 }}
                             />
@@ -616,68 +709,107 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
         }));
     };
 
-    const renderTextContent = (item: ClipboardItem) => {
-        if (!selectedItems[item.id] || !item.content) return null;
+    const renderItem = (item: ClipboardItem) => {
+        if (item.type === CONTENT_TYPE_GROUPS.HTML) {
+            return (
+                <Stack spacing={1}>
+                    {/* Markdown Option */}
+                    <Box>
+                        <FormControlLabel
+                            control={
+                                <Checkbox
+                                    checked={selectedItems[`${item.id}-markdown`] || false}
+                                    onChange={(e) => handleSelectItem(`${item.id}-markdown`, e.target.checked)}
+                                />
+                            }
+                            label="text/markdown (converted from html)"
+                        />
+                        {!showSvgs[item.id] && (
+                            <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() => handleExtractSvgs(item.id)}
+                            >
+                                Extract SVGs
+                            </Button>
+                        )}
+                        {/* Markdown Preview */}
+                        {selectedItems[`${item.id}-markdown`] && (
+                            <Box sx={{
+                                mt: 1,
+                                maxHeight: 200,
+                                overflow: 'auto',
+                                p: 1,
+                                bgcolor: 'background.paper',
+                                borderRadius: 1,
+                                whiteSpace: 'pre-wrap',
+                                fontFamily: 'monospace'
+                            }}>
+                                {previewContent[item.id] || 'Processing...'}
+                            </Box>
+                        )}
+                    </Box>
 
+                    {/* HTML Option */}
+                    <Box>
+                        <FormControlLabel
+                            control={
+                                <Checkbox
+                                    checked={selectedItems[`${item.id}-html`] || false}
+                                    onChange={(e) => handleSelectItem(`${item.id}-html`, e.target.checked)}
+                                />
+                            }
+                            label="text/html"
+                        />
+                        {/* HTML Preview */}
+                        {selectedItems[`${item.id}-html`] && (
+                            <Box sx={{
+                                mt: 1,
+                                maxHeight: 200,
+                                overflow: 'auto',
+                                p: 1,
+                                bgcolor: 'background.paper',
+                                borderRadius: 1,
+                                whiteSpace: 'pre-wrap',
+                                fontFamily: 'monospace'
+                            }}>
+                                {item.content?.toString()}
+                            </Box>
+                        )}
+                    </Box>
+                </Stack>
+            );
+        }
+
+        // For non-HTML content
         return (
-            <Box sx={{
-                maxHeight: 200,
-                overflow: 'auto',
-                p: 1,
-                bgcolor: 'background.paper',
-                borderRadius: 1,
-                whiteSpace: 'pre-wrap',
-                fontFamily: 'monospace'
-            }}>
-                {item.type === CONTENT_TYPE_GROUPS.HTML
-                    ? (markdownConversion[item.id]
-                        ? previewContent[item.id] || 'Processing...'
-                        : item.content.toString())
-                    : item.content.toString()}
+            <Box>
+                <FormControlLabel
+                    control={
+                        <Checkbox
+                            checked={selectedItems[item.id] || false}
+                            onChange={(e) => handleSelectItem(item.id, e.target.checked)}
+                        />
+                    }
+                    label={item.type}
+                />
+                {selectedItems[item.id] && item.content && (
+                    <Box sx={{
+                        mt: 1,
+                        maxHeight: 200,
+                        overflow: 'auto',
+                        p: 1,
+                        bgcolor: 'background.paper',
+                        borderRadius: 1,
+                        whiteSpace: 'pre-wrap',
+                        fontFamily: 'monospace'
+                    }}>
+                        {item.content.toString()}
+                    </Box>
+                )}
             </Box>
         );
     };
-
-    const renderItemControls = (item: ClipboardItem) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <FormControlLabel
-                control={
-                    <Checkbox
-                        checked={selectedItems[item.id] || false}
-                        onChange={(e) => handleSelectItem(item.id, e.target.checked)}
-                    />
-                }
-                label={
-                    item.type === CONTENT_TYPE_GROUPS.HTML
-                        ? (markdownConversion[item.id] ? 'text/markdown' : 'text/html')
-                        : item.type
-                }
-            />
-            {item.type === CONTENT_TYPE_GROUPS.HTML && (
-                <>
-                    <FormControlLabel
-                        control={
-                            <Checkbox
-                                checked={markdownConversion[item.id] ?? true}
-                                onChange={(e) => handleMarkdownConversion(item.id, e.target.checked)}
-                            />
-                        }
-                        label="Convert to Markdown"
-                    />
-                    {!showSvgs[item.id] && (
-                        <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={() => handleExtractSvgs(item.id)}
-                        >
-                            Extract SVGs
-                        </Button>
-                    )}
-                </>
-            )}
-        </Box>
-    );
-
     React.useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (!open) return;
@@ -738,23 +870,27 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                                         handleSelectAll(shouldSelectAll);
                                     }} />
                             }
-                            label="Select All"
+                            label="Select All Content"
                         />
                     </Box>
+
                     {/* Display all images first */}
                     {renderImagePreview(data.flatMap(group =>
                         group.items?.flatMap(item =>
                             collectItemImages(item)
                         ) || []
                     ))}
+                    <Divider />
 
                     {/* Then display other content */}
                     {data.map(group =>
-                        group.items?.map(item => (
-                            <Box key={item.id} sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                                {renderItemControls(item)}
-                                {renderContentPreview(item)}
-                            </Box>
+                        group.items?.map((item, index) => (
+                            <React.Fragment key={item.id}>
+                                <Box>
+                                    {renderItem(item)}
+                                </Box>
+                                <Divider />
+                            </React.Fragment>
                         ))
                     )}
                 </Stack>

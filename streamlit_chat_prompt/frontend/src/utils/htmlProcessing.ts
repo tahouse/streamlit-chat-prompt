@@ -301,11 +301,82 @@ export async function extractImagesFromHtml(html: string): Promise<ExtractedImag
             try {
                 const serializer = new XMLSerializer();
                 const svgString = serializer.serializeToString(element);
-                const blob = new Blob([svgString], { type: 'image/svg+xml' });
-                const file = new File([blob], 'image.svg', { type: 'image/svg+xml' });
-                svgImages.push({ file, originalUrl: 'inline-svg' });
+
+                // Get SVG dimensions from viewBox or attributes
+                const viewBox = element.getAttribute('viewBox')?.split(' ').map(Number);
+                const width = Math.max(
+                    (element as SVGSVGElement).width?.baseVal?.value || 0,
+                    viewBox?.[2] || 0,
+                    element.getAttribute('width') ? parseInt(element.getAttribute('width')!) : 0
+                ) || 800; // fallback width
+                const height = Math.max(
+                    (element as SVGSVGElement).height?.baseVal?.value || 0,
+                    viewBox?.[3] || 0,
+                    element.getAttribute('height') ? parseInt(element.getAttribute('height')!) : 0
+                ) || 600; // fallback height
+
+                // Create a new SVG with explicit dimensions
+                const wrappedSvg = `
+                    <svg xmlns="http://www.w3.org/2000/svg" 
+                         width="${width}" 
+                         height="${height}" 
+                         viewBox="0 0 ${width} ${height}">
+                        ${svgString}
+                    </svg>`;
+
+                const svgBlob = new Blob([wrappedSvg], { type: 'image/svg+xml' });
+                const svgUrl = URL.createObjectURL(svgBlob);
+
+                // Convert SVG to PNG using canvas
+                const img = new Image();
+                await new Promise<void>((resolve, reject) => {
+                    img.onload = () => resolve();
+                    img.onerror = reject;
+                    img.src = svgUrl;
+                });
+
+                // Create canvas with proper dimensions
+                const canvas = document.createElement('canvas');
+                const scale = 5; // Scale up for better quality
+                canvas.width = width * scale;
+                canvas.height = height * scale;
+
+                const ctx = canvas.getContext('2d');
+                if (!ctx) throw new Error('Could not get canvas context');
+
+                // Scale up for better quality
+                ctx.scale(scale, scale);
+                ctx.fillStyle = 'transparent';
+                ctx.fillRect(0, 0, width, height);
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // Convert to PNG
+                const pngDataUrl = canvas.toDataURL('image/png');
+
+                // Clean up
+                URL.revokeObjectURL(svgUrl);
+
+                // Convert data URL to File
+                const base64Data = pngDataUrl.split(',')[1];
+                const byteCharacters = atob(base64Data);
+                const byteNumbers = new Array(byteCharacters.length);
+
+                for (let i = 0; i < byteCharacters.length; i++) {
+                    byteNumbers[i] = byteCharacters.charCodeAt(i);
+                }
+
+                const byteArray = new Uint8Array(byteNumbers);
+                const blob = new Blob([byteArray], { type: 'image/png' });
+                const filename = `inline-svg-${svgImages.length}.png`;
+                const file = new File([blob], filename, { type: 'image/png' });
+
+                svgImages.push({
+                    file,
+                    originalUrl: 'inline-svg'
+                });
+
             } catch (error) {
-                Logger.warn('images', 'Failed to convert SVG:', error);
+                Logger.warn('images', 'Failed to convert SVG to PNG:', error);
             }
         }
         // Process background images
