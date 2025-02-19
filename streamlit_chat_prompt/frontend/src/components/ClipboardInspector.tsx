@@ -152,6 +152,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
     const [selectedImages, setSelectedImages] = useState<Record<string, boolean>>({});
     const [extractedImages, setExtractedImages] = useState<Record<string, ExtractedImage[]>>({});
     const [selectedItems, setSelectedItems] = useState<Record<string, boolean>>({});
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [selectAll, setSelectAll] = useState(false);
     const [markdownConversion, setMarkdownConversion] = useState<Record<string, boolean>>({});
     const turndownService = React.useMemo(() => createTurndownService(), []);
