@@ -11,17 +11,20 @@ import {
     DialogContent,
     DialogTitle,
     Divider,
+    FormControl,
     FormControlLabel,
     IconButton,
     ImageList,
     ImageListItem,
+    MenuItem,
+    Select,
     Stack
 } from '@mui/material';
 
 import React, { useEffect, useState } from 'react';
 import { Theme } from 'streamlit-component-lib';
 import TurndownService from 'turndown';
-import { cleanBase64ImagesFromContent, extractCodeBlocks, ExtractedImage, extractImagesFromHtml } from '../utils/htmlProcessing';
+import { cleanBase64ImagesFromContent, extractCodeBlocks, ExtractedImage, extractImagesFromHtml, getSortedLanguageOptions, guessCodeLanguage } from '../utils/htmlProcessing';
 import { Logger } from '../utils/logger';
 
 const createTurndownService = () => {
@@ -141,6 +144,7 @@ interface ClipboardInspectorProps {
     theme?: Theme;
     onClose: () => void;
     onSelect: (selectedItems: ClipboardItem[]) => void;
+    defaultLanguage?: string;
 }
 
 export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
@@ -153,12 +157,44 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
     const [extractedImages, setExtractedImages] = useState<Record<string, ExtractedImage[]>>({});
     const [selectedItems, setSelectedItems] = useState<Record<string, boolean>>({});
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const [selectAll, setSelectAll] = useState(false);
+    const [_, setSelectAll] = useState(false);
     const [markdownConversion, setMarkdownConversion] = useState<Record<string, boolean>>({});
     const turndownService = React.useMemo(() => createTurndownService(), []);
     const [showSvgs, setShowSvgs] = useState<Record<string, boolean>>({});
     const [previewContent, setPreviewContent] = useState<Record<string, string>>({});
     const allItems = data.flatMap(group => group.items || []);
+    const [selectedLanguages, setSelectedLanguages] = useState<Record<string, string>>({});
+
+    const languageOptions = React.useMemo(() => {
+        // Create a Set of detected languages, filtering out undefined values
+        const detected = new Set<string>(
+            data.flatMap(group =>
+                (group.items || [])
+                    .filter((item): item is ClipboardItem & { content: string } =>
+                        item.type === CONTENT_TYPE_GROUPS.HTML &&
+                        item.content !== null &&
+                        item.content !== undefined
+                    )
+                    .map(item => guessCodeLanguage(item.content).name)
+                    .filter((name): name is string => name !== undefined)
+            )
+        );
+
+        return getSortedLanguageOptions(detected);
+    }, [data]);
+
+    const getInitialLanguageSelection = (content: string): string => {
+        const codeBlocks = extractCodeBlocks(content);
+        const uniqueLanguages = new Set(
+            codeBlocks
+                .filter(block => block.language && !block.isInline)
+                .map(block => block.language!)  // Add ! since we filtered for non-null
+        );
+
+        return uniqueLanguages.size > 1 ? 'multiple' :
+            uniqueLanguages.size === 1 ? (Array.from(uniqueLanguages)[0] ?? 'none') :
+                'none';
+    };
 
     const collectItemImages = (item: ClipboardItem) => {
         const images: Array<{ file: File, id: string }> = [];
@@ -237,6 +273,14 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                         // Process HTML content for images
                         if (item.content) {
                             processHtmlContent(item.id, item.content.toString());
+                            // Get initial language selection
+                            const initialLanguage = getInitialLanguageSelection(
+                                item.content.toString()
+                            );
+                            setSelectedLanguages(prev => ({
+                                ...prev,
+                                [item.id]: initialLanguage
+                            }));
                         }
                     } else if (item.type.startsWith(CONTENT_TYPE_GROUPS.IMAGE)) {
                         setSelectedItems(prev => ({
@@ -256,6 +300,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             setSelectAll(nonTextItems.length > 0);
         } else {
             // Reset state when closing
+            setSelectedLanguages({});
             setSelectedImages({});
             setExtractedImages({});
             setSelectedItems({});
@@ -336,10 +381,12 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
         }));
     };
 
-    const generateMarkdownPreview = React.useMemo(() => (html: string, itemId: string) => {
+    const generateMarkdownPreview = React.useMemo(() => (html: string, itemId: string, selectedLanguage: string
+    ) => {
         Logger.info('component', 'Starting markdown preview generation for HTML:', {
             itemId,
-            htmlLength: html.length
+            htmlLength: html.length,
+            selectedLanguage: selectedLanguage
         });
 
         // Step 1: Extract code blocks and replace with placeholders
@@ -348,11 +395,12 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
         Logger.info('component', 'Extracted code blocks:', codeBlocks.map((block, index) => ({
             index,
             placeholder: `CODEBLOCK_PLACEHOLDER_${index}_ENDPLACEHOLDER`,
-            language: block.language,
+            language: block.language, // Use selected language if specified
             htmlPreview: block.html.substring(0, 100) + '...',
             htmlLength: block.html.length,
             plainPreview: block.plainText.substring(0, 100) + '...',
             isInline: block.isInline,
+            isStandalone: block.isStandalone,
         })));
 
         let workingHtml = html;
@@ -360,11 +408,14 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
         // Step 2: Create temporary placeholders for code blocks
         codeBlocks.forEach((block, index) => {
             // Only replace full code blocks with placeholders
-            if (block.isStandalone) {
+            if (!block.isInline) {
                 const placeholder = `[CODEBLOCK${index}]`;
                 workingHtml = workingHtml.replace(block.html, placeholder);
             }
             // Leave inline code in place to be handled by turndown service
+        });
+        Logger.debug('component', 'After code block replacement:', {
+            workingHtmlPreview: workingHtml.substring(0, 200) + '...',
         });
 
         // Step 3: Convert remaining HTML to markdown
@@ -390,6 +441,14 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
         let finalMarkdown = markdown;
         codeBlocks.forEach((block, index) => {
             const placeholder = `[CODEBLOCK${index}]`;
+            let language = '';
+            if (selectedLanguage === 'multiple') {
+                // Use detected language if available, otherwise empty
+                language = block.language || '';
+            } else {
+                // Use selected language
+                language = selectedLanguage === 'none' ? '' : selectedLanguage;
+            }
 
             // Clean up the code content while preserving line breaks
             let codeContent = block.plainText;
@@ -399,7 +458,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                 ? `\`${block.plainText}\``  // Inline code with single backticks
                 : [                         // Block code with triple backticks
                     '',
-                    '```' + (block.language || ''),
+                    '```' + language,
                     block.plainText,
                     '```',
                     ''
@@ -508,7 +567,8 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
 
                     const updatedMarkdown = generateMarkdownPreview(
                         item.content.toString(),
-                        item.id
+                        item.id,
+                        selectedLanguages[item.id] || 'none' // Pass selected language
                     );
 
                     setPreviewContent(prev => ({
@@ -518,7 +578,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                 }
             });
         });
-    }, [selectedImages, markdownConversion, generateMarkdownPreview, data]);
+    }, [selectedImages, markdownConversion, generateMarkdownPreview, data, selectedLanguages]);
 
     const handleConfirm = React.useCallback(() => {
         const selected = data.flatMap(group =>
@@ -557,7 +617,8 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                             ...item,
                             content: previewContent[item.id],
                             convertToMarkdown: false,
-                            extractedImages: selectedItemImages
+                            extractedImages: selectedItemImages,
+                            language: selectedLanguages[item.id] || 'none' // Add language
                         };
                     } else {
                         return {
@@ -578,6 +639,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
         onClose();
 
         setTimeout(() => {
+            setSelectedLanguages({});
             setSelectedImages({});
             setExtractedImages({});
             setSelectedItems({});
@@ -585,7 +647,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             setMarkdownConversion({});
             setShowSvgs({});
         }, 100);
-    }, [data, selectedItems, selectedImages, showSvgs, previewContent, extractedImages, onSelect, onClose]);
+    }, [data, selectedItems, selectedImages, showSvgs, previewContent, extractedImages, selectedLanguages, onSelect, onClose]);
 
 
 
@@ -704,9 +766,34 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                                 size="small"
                                 variant="outlined"
                                 onClick={() => handleExtractSvgs(item.id)}
+                                sx={{ mr: 2 }}  // Add margin-right of 16px (mr: 2 = 16px in MUI)
                             >
                                 Extract SVGs
                             </Button>
+                        )}
+                        {selectedItems[`${item.id}-markdown`] && (
+                            <FormControl size="small" sx={{ mt: 1, minWidth: 120 }}>
+                                <Select
+                                    value={selectedLanguages[item.id] || 'none'}
+                                    onChange={(e) => {
+                                        setSelectedLanguages(prev => ({
+                                            ...prev,
+                                            [item.id]: e.target.value
+                                        }));
+                                    }}
+                                >
+                                    {languageOptions.map(lang => {
+                                        const codeBlocks = extractCodeBlocks(item.content?.toString() || '');
+                                        const hasLanguage = codeBlocks.some(block => block.language === lang.name);
+                                        return (
+                                            <MenuItem key={lang.name} value={lang.name}>
+                                                {lang.displayName}
+                                                {hasLanguage && ' ✓'}
+                                            </MenuItem>
+                                        );
+                                    })}
+                                </Select>
+                            </FormControl>
                         )}
                         {/* Markdown Preview */}
                         {selectedItems[`${item.id}-markdown`] && (

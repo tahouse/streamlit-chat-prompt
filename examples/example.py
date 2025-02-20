@@ -88,13 +88,13 @@ prompt_return: PromptReturn | None = prompt(
     key="chat_prompt",
     placeholder="Hi there! What should we chat about?",
     main_bottom=True,
-    log_level="info",
-    enable_clipboard_inspector=False,
+    log_level="debug",
+    enable_clipboard_inspector=True,
 )
 
 if prompt_return:
     st.session_state.messages.append(ChatMessage(role="user", content=prompt_return))
     st.session_state.messages.append(
-        ChatMessage(role="assistant", content=f"Echo: {prompt_return.text}")
+        ChatMessage(role="assistant", content=f"Echo:\n\n{prompt_return.text}")
     )
     st.rerun()

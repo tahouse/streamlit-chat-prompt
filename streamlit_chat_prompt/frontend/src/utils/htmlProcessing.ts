@@ -6,13 +6,376 @@ export interface ExtractedImage {
     originalUrl: string;
     error?: string;
 }
-
 interface CodeBlock {
     html: string;          // Original HTML
     plainText: string;     // Clean text with preserved whitespace
-    language?: string;
+    language?: string;     // Language name
+    highlightHint?: string; // Syntax highlighting hint
     isInline: boolean;
     isStandalone: boolean;
+}
+
+export interface LanguageDefinition {
+    name: string;
+    displayName: string; // For dropdown display
+    highlightHint: string;
+    patterns: RegExp[];
+    keywords: string[];
+    indicators?: number; // Add optional indicators property
+    order?: number;
+}
+
+export const LANGUAGE_DEFINITIONS: LanguageDefinition[] = [
+    {
+        name: 'multiple',
+        displayName: 'Multiple (Keep Original)',
+        highlightHint: 'multiple',
+        patterns: [],
+        keywords: [],
+        indicators: 0,
+        order: -1  // Ensure it appears near the top
+    },
+    {
+        name: 'none',
+        displayName: 'None',
+        highlightHint: 'plaintext',
+        patterns: [],
+        keywords: [],
+        indicators: 0,
+        order: 0
+    },
+    {
+        name: 'python',
+        displayName: 'Python',
+        patterns: [
+            /def\s+\w+\s*\(/,
+            /:\s*$/m,
+            /^\s*import\s+[\w\s,]+$/m,
+            /from\s+[\w.]+\s+import/,
+            /\bindent|self\b/,
+        ],
+        keywords: ['elif', 'while', 'None', 'True', 'False', 'and', 'or', 'not'],
+        highlightHint: 'python',
+        indicators: 0,
+        order: 1
+    },
+    {
+        name: 'typescript',
+        displayName: 'TypeScript',
+        patterns: [
+            /:\s*(string|number|boolean|any)\b/i,
+            /interface\s+\w+/,
+            /type\s+\w+\s*=/,
+            /<[A-Z]\w*>/,
+            /export\s+(type|interface|class)/,
+        ],
+        keywords: ['instanceof', 'readonly', 'enum', 'declare', 'namespace'],
+        highlightHint: 'typescript',
+        indicators: 0,
+    },
+    {
+        name: 'javascript',
+        displayName: 'JavaScript',
+        patterns: [
+            /const|let|var/,
+            /=>/,
+            /\.(map|filter|reduce|forEach)\(/,
+            /function\s*\w*\s*\(/,
+            /\$\{.*?\}/,
+        ],
+        keywords: ['undefined', 'console', 'Promise', 'async', 'await'],
+        highlightHint: 'javascript',
+        indicators: 0
+    },
+
+    {
+        name: 'java',
+        displayName: 'Java',
+        patterns: [
+            /public\s+(class|interface|enum)/,
+            /private|protected|public/,
+            /\w+\s+\w+\s*=\s*new\s+\w+/,
+            /System\.(out|err)\./,
+            /import\s+java\./,
+        ],
+        keywords: ['extends', 'implements', 'final', 'void', 'static'],
+        highlightHint: 'java',
+        indicators: 0
+    },
+    {
+        name: 'shell',
+        displayName: 'Shell',
+        patterns: [
+            /^\s*#!.*?(bash|sh|zsh)/m,
+            /\$\{?\w+\}?/,
+            /\|\s*grep|awk|sed/,
+            /sudo|chmod|chown|echo/,
+            /^\s*if\s+\[\s+.*\s+\]/m,
+        ],
+        keywords: ['export', 'source', 'alias', 'unset', 'local'],
+        highlightHint: 'shell',
+        indicators: 0
+    },
+    {
+        name: 'markdown',
+        displayName: 'Markdown',
+        patterns: [
+            /^#{1,6}\s+.+$/m,
+            /\[.+?\]\(.+?\)/,
+            /^\s*[-*+]\s+/m,
+            /^\s*\d+\.\s+/m,
+            /`{3}.*?\n[\s\S]*?`{3}/,
+        ],
+        keywords: [
+            '\\*\\*',
+            '_\\_',
+            '```',
+            '>',
+            '---',
+            '==='
+        ],
+        highlightHint: 'markdown',
+        indicators: 0
+    },
+    {
+        name: 'json',
+        displayName: 'JSON',
+        patterns: [
+            /^[\s\n]*{[\s\S]*}[\s\n]*$/,
+            /^[\s\n]*\[[\s\S]*\][\s\n]*$/,
+            /"[^"]+"\s*:/,
+            /,\s*"[^"]+"\s*:/,
+            /true|false|null/,
+        ],
+        keywords: ['{', '}', '[', ']', ':', ','],
+        highlightHint: 'json',
+        indicators: 0
+    },
+    {
+        name: 'html',
+        displayName: 'HTML',
+        patterns: [
+            /<[^>]+>/,
+            /<\/\w+>/,
+            /<!DOCTYPE\s+html>/i,
+            /<(div|span|p|a|img|ul|li)\b/i,
+            /\s(class|id|style)=["'][^"']*["']/
+        ],
+        keywords: ['html', 'head', 'body', 'div', 'span', 'class'],
+        highlightHint: 'html',
+        indicators: 0
+    },
+    {
+        name: 'cpp',
+        displayName: 'C++',
+        patterns: [
+            /#include\s*<[^>]+>/,
+            /::\w+/,
+            /\b(void|int|char|double)\s+\w+\s*\(/,
+            /template\s*<.*?>/,
+            /std::\w+/,
+        ],
+        keywords: ['namespace', 'template', 'class', 'public:', 'private:', 'protected:'],
+        highlightHint: 'cpp',
+        indicators: 0
+    },
+    {
+        name: 'c',
+        displayName: 'C',
+        patterns: [
+            /#include\s*<[^>]+\.h>/,
+            /\b(void|int|char|float)\s+\w+\s*\([^)]*\)/,
+            /\bstruct\s+\w+\s*{/,
+            /malloc\s*\(|free\s*\(/,
+            /printf|scanf/,
+        ],
+        keywords: ['sizeof', 'typedef', 'enum', 'union', 'NULL'],
+        highlightHint: 'c',
+        indicators: 0
+    },
+    {
+        name: 'rust',
+        displayName: 'Rust',
+        patterns: [
+            /fn\s+\w+/,
+            /let\s+mut\s+\w+/,
+            /->\s*\w+/,
+            /impl\s+\w+/,
+            /use\s+\w+::\w+/,
+        ],
+        keywords: ['mut', 'impl', 'trait', 'struct', 'enum', 'match'],
+        highlightHint: 'rust',
+        indicators: 0
+    },
+    {
+        name: 'sql',
+        displayName: 'SQL',
+        patterns: [
+            /SELECT\s+.+?\s+FROM\s+\w+/i,
+            /INSERT\s+INTO\s+\w+/i,
+            /UPDATE\s+\w+\s+SET/i,
+            /CREATE\s+TABLE\s+\w+/i,
+            /JOIN\s+\w+\s+ON/i,
+        ],
+        keywords: ['WHERE', 'GROUP BY', 'ORDER BY', 'HAVING', 'UNION'],
+        highlightHint: 'sql',
+        indicators: 0
+    }
+];
+export function getSortedLanguageOptions(detectedLanguages: Set<string>): LanguageDefinition[] {
+    const hasMultipleLanguages = detectedLanguages.size > 1;
+
+    // Create base array with fixed ordering
+    const orderedOptions = [
+        // Always include 'none' first
+        LANGUAGE_DEFINITIONS.find(l => l.name === 'none')!,
+
+        // Include 'multiple' option if multiple languages detected
+        ...(hasMultipleLanguages ? [LANGUAGE_DEFINITIONS.find(l => l.name === 'multiple')!] : []),
+
+        // Always include Python near the top (if it exists in LANGUAGE_DEFINITIONS)
+        ...(LANGUAGE_DEFINITIONS.filter(l => l.name === 'python')),
+
+        // Add detected languages (excluding ones we've already added)
+        ...LANGUAGE_DEFINITIONS.filter(l =>
+            detectedLanguages.has(l.name) &&
+            l.name !== 'none' &&
+            l.name !== 'multiple' &&
+            l.name !== 'python'
+        ),
+
+        // Add remaining languages alphabetically
+        ...LANGUAGE_DEFINITIONS.filter(l =>
+            !detectedLanguages.has(l.name) &&
+            l.name !== 'none' &&
+            l.name !== 'multiple' &&
+            l.name !== 'python'
+        ).sort((a, b) => a.displayName.localeCompare(b.displayName))
+    ];
+
+    // Filter out any undefined entries and ensure unique entries
+    const uniqueOptions = Array.from(new Map(
+        orderedOptions
+            .filter(Boolean)
+            .map(lang => [lang.name, lang])
+    ).values());
+
+    // Add debugging
+    Logger.debug('component', 'Language options generated:', {
+        detectedLanguages: Array.from(detectedLanguages),
+        hasMultipleLanguages,
+        totalOptions: uniqueOptions.length,
+        orderedNames: uniqueOptions.map(l => l.name)
+    });
+
+    return uniqueOptions;
+}
+function escapeRegExp(string: string): string {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function createKeywordRegex(keyword: string): RegExp {
+    const escaped = escapeRegExp(keyword);
+    try {
+        return new RegExp(`\\b${escaped}\\b`, 'g');
+    } catch (e) {
+        // Fallback for keywords that can't be used with word boundaries
+        return new RegExp(escaped, 'g');
+    }
+}
+export function guessCodeLanguage(code: string): { name: string; highlightHint: string } {
+    // Clean and normalize the code sample
+    const normalizedCode = code.trim();
+
+    // Language patterns with distinctive features
+    const languages = LANGUAGE_DEFINITIONS.filter(lang => lang.name !== 'none').map(lang => ({
+        ...lang,
+        indicators: 0 // Ensure indicators is initialized
+    }));
+
+    // Calculate confidence scores for each language
+    languages.forEach(lang => {
+        // Check patterns
+        lang.patterns.forEach(pattern => {
+            try {
+                if (pattern.test(normalizedCode)) {
+                    lang.indicators += 2;
+                }
+            } catch (e) {
+                Logger.warn('component', `Invalid pattern in ${lang.name}:`, e);
+            }
+        });
+
+        // Check keywords with safe regex creation
+        lang.keywords.forEach(keyword => {
+            try {
+                const regex = createKeywordRegex(keyword);
+                const matches = normalizedCode.match(regex);
+                if (matches) {
+                    lang.indicators += matches.length;
+                }
+            } catch (e) {
+                Logger.warn('component', `Invalid keyword in ${lang.name}: ${keyword}`, e);
+            }
+        });
+
+        // Special case checks
+        switch (lang.name) {
+            case 'typescript':
+                if (normalizedCode.includes('typescript')) lang.indicators += 3;
+                break;
+            case 'python':
+                if (/^\s*def\s+\w+\s*\([^)]*\)\s*:/.test(normalizedCode)) lang.indicators += 3;
+                break;
+            case 'shell':
+                if (/^\s*#!.*?\/bin\/(bash|sh)/.test(normalizedCode)) lang.indicators += 5;
+                break;
+            case 'java':
+                if (/class\s+\w+\s*(extends|implements)/.test(normalizedCode)) lang.indicators += 3;
+                break;
+            case 'markdown':
+                if (/^#\s+/.test(normalizedCode)) lang.indicators += 3;
+                break;
+            case 'json':
+                // eslint-disable-next-line no-useless-escape
+                if (/^[\s\n]*[{\[]/.test(normalizedCode) && /[}\]][\s\n]*$/.test(normalizedCode)) lang.indicators += 3;
+                break;
+            case 'html':
+                if (/<\/?[a-z][\s\S]*>/i.test(normalizedCode)) lang.indicators += 3;
+                break;
+        }
+    });
+
+    // Sort languages by confidence score
+    // Sort languages by confidence score
+    languages.sort((a, b) => (b.indicators || 0) - (a.indicators || 0));
+
+    // Return the most likely language if it has enough indicators
+    if (languages[0]?.indicators >= 2) {
+        Logger.debug('component', 'Language detection:', {
+            detected: languages[0].name,
+            confidence: languages[0].indicators,
+            allScores: languages.map(l => ({ [l.name]: l.indicators }))
+        });
+        return {
+            name: languages[0].name,
+            highlightHint: languages[0].highlightHint || languages[0].name
+        };
+    }
+
+    // Fallback detection based on specific patterns
+    if (normalizedCode.includes('=>')) return { name: 'javascript', highlightHint: 'javascript' };
+    if (normalizedCode.includes('def ')) return { name: 'python', highlightHint: 'python' };
+    if (normalizedCode.startsWith('#include')) return { name: 'cpp', highlightHint: 'cpp' };
+    if (normalizedCode.startsWith('fn ')) return { name: 'rust', highlightHint: 'rust' };
+    if (normalizedCode.toUpperCase().includes('SELECT') &&
+        normalizedCode.toUpperCase().includes('FROM')) return { name: 'sql', highlightHint: 'sql' };
+    if (normalizedCode.startsWith('#')) return { name: 'markdown', highlightHint: 'markdown' };
+    if (normalizedCode.trim().startsWith('{') &&
+        normalizedCode.trim().endsWith('}')) return { name: 'json', highlightHint: 'json' };
+
+    // Default to javascript if we can't determine
+    return { name: 'plaintext', highlightHint: 'plaintext' };
 }
 
 function isStandaloneBlock(element: Element): boolean {
@@ -51,7 +414,7 @@ function isInlineCode(element: Element): boolean {
     const isInPreBlock = !!element.closest('pre');
 
     // add labels
-    Logger.info("component", "Checking if code block is inline:", {
+    Logger.debug("component", "Checking if code block is inline:", {
         text: element.textContent,
         isInParagraph: isInParagraph,
         hasLineBreaks: hasLineBreaks,
@@ -113,7 +476,8 @@ export function extractCodeBlocks(html: string): CodeBlock[] {
             Logger.debug("component", "Found code block:", {
                 element: element.tagName,
                 classes: element.className,
-                style: element.getAttribute('style')
+                style: element.getAttribute('style'),
+                text: element.textContent
             });
 
             // Create cleaned plaintext version
@@ -132,10 +496,14 @@ export function extractCodeBlocks(html: string): CodeBlock[] {
             // Decode HTML entities in plaintext
             const decodedPlainText = decodeHtmlEntities(plainText).trim();
             const isInline = isInlineCode(element);
+            const detectedLanguage = guessCodeLanguage(decodedPlainText);
+
 
             codeBlocks.push({
                 html: element.innerHTML,       // Original HTML
                 plainText: decodedPlainText,   // Clean text with preserved whitespace
+                language: detectedLanguage.name,
+                highlightHint: detectedLanguage.highlightHint,
                 isInline: isInline,
                 isStandalone: isStandaloneBlock(element)
             });
@@ -151,7 +519,6 @@ export function extractCodeBlocks(html: string): CodeBlock[] {
     }
 
     processElement(doc.body);
-    Logger.debug("component", "Extracted code blocks:", codeBlocks);
     return codeBlocks;
 }
 
