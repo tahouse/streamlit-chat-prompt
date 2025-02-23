@@ -386,11 +386,15 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
         Logger.info('component', 'Starting markdown preview generation for HTML:', {
             itemId,
             htmlLength: html.length,
-            selectedLanguage: selectedLanguage
+            selectedLanguage: selectedLanguage,
+            htmlPreview: html.substring(0, 100) + '...'
         });
 
+        // Step 1: Clean the HTML content
+        let workingHtml = html;
+
         // Step 1: Extract code blocks and replace with placeholders
-        const codeBlocks = extractCodeBlocks(html);
+        const codeBlocks = extractCodeBlocks(workingHtml);
 
         Logger.info('component', 'Extracted code blocks:', codeBlocks.map((block, index) => ({
             index,
@@ -402,8 +406,6 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             isInline: block.isInline,
             isStandalone: block.isStandalone,
         })));
-
-        let workingHtml = html;
 
         // Step 2: Create temporary placeholders for code blocks
         codeBlocks.forEach((block, index) => {
@@ -417,6 +419,8 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
         Logger.debug('component', 'After code block replacement:', {
             workingHtmlPreview: workingHtml.substring(0, 200) + '...',
         });
+
+        workingHtml = stripHtmlStyling(workingHtml);
 
         // Step 3: Convert remaining HTML to markdown
         let markdown = turndownService.turndown(workingHtml);
