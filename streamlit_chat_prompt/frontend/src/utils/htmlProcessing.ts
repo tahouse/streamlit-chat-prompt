@@ -461,6 +461,33 @@ export function isCodeBlock(element: Element): boolean {
     return isMonospace || isPreFormatted;
 }
 
+export function stripHtmlStyling(html: string): string {
+
+    const cleanHtml = html
+        .replace(/<!--[\s\S]*?(?:@font-face|Style Definitions)[\s\S]*?-->/gi, '') // Remove font/style definition blocks
+        .replace(/<o:p>\s*<\/o:p>/g, '') // Remove empty o:p tags
+        .replace(/<\/?\w+:[^>]*>/g, '')  // Remove all other namespace tags
+        .replace(/style="[^"]*"/g, '')   // Remove style attributes
+        .replace(/class="Mso[^"]*"/g, '') // Remove MSO classes
+        .replace(/<!--[\s\S]*?-->/g, ''); // Remove any remaining comments
+
+    if (html !== cleanHtml) {
+        Logger.debug("component", "Cleaned Microsoft Word HTML:", {
+            originalLength: html.length,
+            originalHtml: html.slice(0, 100),
+            cleanedLength: cleanHtml.length,
+            cleanedHtml: cleanHtml.slice(0, 100)
+        });
+        return cleanHtml;
+    } else {
+        Logger.debug("component", "Did not find any Microsoft Word HTML to clean.", {
+            originalLength: html.length,
+            cleanedLength: cleanHtml.length,
+        });
+        return html;
+    }
+}
+
 export function extractCodeBlocks(html: string): CodeBlock[] {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');

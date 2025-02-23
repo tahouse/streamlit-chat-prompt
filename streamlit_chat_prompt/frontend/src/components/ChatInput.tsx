@@ -85,7 +85,7 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
     this.handlePasteEvent = this.handlePasteEvent.bind(this);
   }
   private async handlePasteEvent(e: ClipboardEvent) {
-    if (this.state.disabled) return;
+    if (this.state.disabled || this.state.clipboardInspector.open) return;
 
     const clipboardData = e.clipboardData;
     if (!clipboardData) return;
@@ -101,8 +101,10 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
     // Check if clipboard inspector is enabled via props
     const clipboardInspectorEnabled = this.props.args?.clipboard_inspector_enabled ?? false;
 
-    // If more than one type, show the inspector
-    if (uniqueTypes.size > 1 && clipboardInspectorEnabled) {
+    // If more than one type, or one type but its not image/plaintext, show the inspector
+    if ((uniqueTypes.size > 1 ||
+      (!uniqueTypes.has('image') && !uniqueTypes.has('text'))) &&
+      clipboardInspectorEnabled) {
       e.preventDefault(); // Prevent default paste
       const clipboardInspectorData = inspectClipboard(e);
       this.isShowingDialog = true;
