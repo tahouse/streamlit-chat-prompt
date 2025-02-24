@@ -18,7 +18,7 @@ import {
 import { checkFileSize, processImage } from "../utils/images";
 import { Logger } from "../utils/logger";
 import { generateUUID } from "../utils/uuid";
-import { ClipboardInspector, ClipboardItem, DIALOG_HEIGHTS, inspectClipboard } from "./ClipboardInspector";
+import { ClipboardInspector, ClipboardInspectorData, ClipboardItem, DIALOG_HEIGHTS, inspectClipboard } from "./ClipboardInspector";
 import { PromptData } from "./PromptData";
 import { Props } from "./Props";
 import { State } from "./State";
@@ -733,6 +733,15 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
           theme={this.props.theme}
           onClose={this.handleCloseDialog}
           onSelect={this.handleClipboardSelection}
+          setData={(value: React.SetStateAction<ClipboardInspectorData[]>) => {
+            const newData = typeof value === 'function' ? value(this.state.clipboardInspector.data) : value;
+            this.setState({
+              clipboardInspector: {
+                ...this.state.clipboardInspector,
+                data: newData
+              }
+            });
+          }}
         />
         <Snackbar
           open={this.state.notification.open}

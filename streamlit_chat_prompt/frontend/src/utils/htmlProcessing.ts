@@ -37,7 +37,7 @@ export const LANGUAGE_DEFINITIONS: LanguageDefinition[] = [
     },
     {
         name: 'none',
-        displayName: 'None',
+        displayName: 'plaintext',
         highlightHint: 'plaintext',
         patterns: [],
         keywords: [],
@@ -46,7 +46,7 @@ export const LANGUAGE_DEFINITIONS: LanguageDefinition[] = [
     },
     {
         name: 'python',
-        displayName: 'Python',
+        displayName: 'python',
         patterns: [
             /def\s+\w+\s*\(/,
             /:\s*$/m,
@@ -61,7 +61,7 @@ export const LANGUAGE_DEFINITIONS: LanguageDefinition[] = [
     },
     {
         name: 'typescript',
-        displayName: 'TypeScript',
+        displayName: 'typescript',
         patterns: [
             /:\s*(string|number|boolean|any)\b/i,
             /interface\s+\w+/,
@@ -75,7 +75,7 @@ export const LANGUAGE_DEFINITIONS: LanguageDefinition[] = [
     },
     {
         name: 'javascript',
-        displayName: 'JavaScript',
+        displayName: 'javascript',
         patterns: [
             /const|let|var/,
             /=>/,
@@ -90,7 +90,7 @@ export const LANGUAGE_DEFINITIONS: LanguageDefinition[] = [
 
     {
         name: 'java',
-        displayName: 'Java',
+        displayName: 'java',
         patterns: [
             /public\s+(class|interface|enum)/,
             /private|protected|public/,
@@ -104,7 +104,7 @@ export const LANGUAGE_DEFINITIONS: LanguageDefinition[] = [
     },
     {
         name: 'shell',
-        displayName: 'Shell',
+        displayName: 'shell',
         patterns: [
             /^\s*#!.*?(bash|sh|zsh)/m,
             /\$\{?\w+\}?/,
@@ -118,7 +118,7 @@ export const LANGUAGE_DEFINITIONS: LanguageDefinition[] = [
     },
     {
         name: 'markdown',
-        displayName: 'Markdown',
+        displayName: 'markdown',
         patterns: [
             /^#{1,6}\s+.+$/m,
             /\[.+?\]\(.+?\)/,
@@ -139,7 +139,7 @@ export const LANGUAGE_DEFINITIONS: LanguageDefinition[] = [
     },
     {
         name: 'json',
-        displayName: 'JSON',
+        displayName: 'json',
         patterns: [
             /^[\s\n]*{[\s\S]*}[\s\n]*$/,
             /^[\s\n]*\[[\s\S]*\][\s\n]*$/,
@@ -153,7 +153,8 @@ export const LANGUAGE_DEFINITIONS: LanguageDefinition[] = [
     },
     {
         name: 'html',
-        displayName: 'HTML',
+        displayName: 'html',
+
         patterns: [
             /<[^>]+>/,
             /<\/\w+>/,
@@ -167,7 +168,7 @@ export const LANGUAGE_DEFINITIONS: LanguageDefinition[] = [
     },
     {
         name: 'cpp',
-        displayName: 'C++',
+        displayName: 'c++',
         patterns: [
             /#include\s*<[^>]+>/,
             /::\w+/,
@@ -181,7 +182,7 @@ export const LANGUAGE_DEFINITIONS: LanguageDefinition[] = [
     },
     {
         name: 'c',
-        displayName: 'C',
+        displayName: 'c',
         patterns: [
             /#include\s*<[^>]+\.h>/,
             /\b(void|int|char|float)\s+\w+\s*\([^)]*\)/,
@@ -195,7 +196,7 @@ export const LANGUAGE_DEFINITIONS: LanguageDefinition[] = [
     },
     {
         name: 'rust',
-        displayName: 'Rust',
+        displayName: 'rust',
         patterns: [
             /fn\s+\w+/,
             /let\s+mut\s+\w+/,
@@ -209,7 +210,7 @@ export const LANGUAGE_DEFINITIONS: LanguageDefinition[] = [
     },
     {
         name: 'sql',
-        displayName: 'SQL',
+        displayName: 'sql   ',
         patterns: [
             /SELECT\s+.+?\s+FROM\s+\w+/i,
             /INSERT\s+INTO\s+\w+/i,

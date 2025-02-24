@@ -1,8 +1,9 @@
 // ClipboardInspector.tsx
 import * as turndownPluginGfm from '@joplin/turndown-plugin-gfm';
-import CloseIcon from '@mui/icons-material/Close';
 
+import CloseIcon from '@mui/icons-material/Close';
 import {
+    Autocomplete,
     Box,
     Button,
     Checkbox,
@@ -11,35 +12,208 @@ import {
     DialogContent,
     DialogTitle,
     Divider,
-    FormControl,
     FormControlLabel,
     IconButton,
     ImageList,
     ImageListItem,
     MenuItem,
-    Select,
-    Stack
+    Stack,
+    Tab,
+    Tabs,
+    TextField,
+    Typography
 } from '@mui/material';
 
+import AddIcon from '@mui/icons-material/Add';
+import { Alert, Snackbar } from '@mui/material';
 import React, { useEffect, useState } from 'react';
 import { Theme } from 'streamlit-component-lib';
 import TurndownService from 'turndown';
 import { cleanBase64ImagesFromContent, extractCodeBlocks, ExtractedImage, extractImagesFromHtml, getSortedLanguageOptions, guessCodeLanguage, stripHtmlStyling } from '../utils/htmlProcessing';
 import { Logger } from '../utils/logger';
 
+export const DIALOG_HEIGHTS = {
+    CLIPBOARD_INSPECTOR: 600,
+    CLIPBOARD_INSPECTOR_MAX: 900,
+    DIALOG_CONTENT: 500,
+    BASE_PADDING: 50
+} as const;
+
+export const CONTENT_TYPE_GROUPS = {
+    IMAGE: 'image/',
+    TEXT: 'text/plain',
+    HTML: 'text/html',
+} as const;
+
+interface ClipboardCreatorState {
+    content: string;
+    mimeType: string;
+    additionalMimeTypes: Array<{
+        type: string;
+        content: string;
+    }>;
+}
+interface ClipboardCreatorProps {
+    state: ClipboardCreatorState;
+    onChange: (state: ClipboardCreatorState) => void;
+}
+export interface ClipboardItem {
+    id: string;
+    kind: string;
+    type: string;
+    as_file: File | null;
+    content?: string | ArrayBuffer | null;
+    convertToMarkdown?: boolean;
+    extractedImages?: ExtractedImage[];
+
+}
+
+export interface ClipboardInspectorData {
+    type: string;
+    items?: ClipboardItem[];
+}
+
+interface ClipboardInspectorProps {
+    open: boolean;
+    data: ClipboardInspectorData[];
+    theme?: Theme;
+    onClose: () => void;
+    onSelect: (selectedItems: ClipboardItem[]) => void;
+    defaultLanguage?: string;
+    setData: React.Dispatch<React.SetStateAction<ClipboardInspectorData[]>>;
+}
+
+const ClipboardCreator: React.FC<ClipboardCreatorProps> = ({
+    state,
+    onChange,
+}) => {
+    // Common MIME types for autocomplete
+    const commonMimeTypes = [
+        "text/plain",
+        "text/html",
+        "text/markdown",
+        "text/css",
+        "text/javascript",
+        "application/json",
+        "application/xml",
+        "image/png",
+        "image/jpeg"
+    ];
+
+    const handleRemoveMimeType = (index: number) => {
+        onChange({
+            ...state,
+            additionalMimeTypes: state.additionalMimeTypes.filter((_, i) => i !== index)
+        });
+    };
+    const MimeTypeInput = ({ value, onChange, index }: {
+        value: string;
+        onChange: (value: string) => void;
+        index?: number;
+    }) => {
+        // Keep input value in local state to prevent re-renders
+        const [inputValue, setInputValue] = useState(value);
+
+        // Update local state when prop value changes
+        useEffect(() => {
+            setInputValue(value);
+        }, [value]);
+
+        return (
+            <Autocomplete
+                value={value}
+                inputValue={inputValue}
+                onInputChange={(_, newInputValue) => {
+                    setInputValue(newInputValue);
+                }}
+                onChange={(_, newValue) => {
+                    onChange(newValue || '');
+                }}
+                options={commonMimeTypes}
+                freeSolo
+                renderInput={(params) => (
+                    <TextField
+                        {...params}
+                        label="MIME Type"
+                        variant="outlined"
+                    />
+                )}
+                sx={{ minWidth: 200 }}
+                // Add these props to reduce unnecessary re-renders
+                blurOnSelect
+                selectOnFocus
+                handleHomeEndKeys
+            />
+        );
+    };
+
+    return (
+        <Stack spacing={2}>
+            {/* Primary Content Row */}
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+                <MimeTypeInput
+                    value={state.mimeType}
+                    onChange={(value) => onChange({ ...state, mimeType: value })}
+                />
+                <TextField
+                    fullWidth
+                    label="Primary Content"
+                    multiline
+                    rows={4}
+                    value={state.content}
+                    onChange={(e) => onChange({ ...state, content: e.target.value })}
+                />
+            </Box>
+
+            {/* Additional MIME Types */}
+            {state.additionalMimeTypes.map((mime, index) => (
+                <Box key={index} sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+                    <MimeTypeInput
+                        value={mime.type}
+                        onChange={(value) => {
+                            const newTypes = [...state.additionalMimeTypes];
+                            newTypes[index].type = value;
+                            onChange({ ...state, additionalMimeTypes: newTypes });
+                        }}
+                    />
+                    <TextField
+                        fullWidth
+                        label="Content"
+                        multiline
+                        rows={2}
+                        value={mime.content}
+                        onChange={(e) => {
+                            const newTypes = [...state.additionalMimeTypes];
+                            newTypes[index].content = e.target.value;
+                            onChange({ ...state, additionalMimeTypes: newTypes });
+                        }}
+                    />
+                    <IconButton
+                        onClick={() => handleRemoveMimeType(index)}
+                        sx={{ mt: 1 }}
+                    >
+                        <CloseIcon />
+                    </IconButton>
+                </Box>
+            ))}
+        </Stack>
+    );
+};
+
+
 const createTurndownService = () => {
     const service = new TurndownService({
-        // headingStyle: 'atx',
-        // bulletListMarker: '-',
-        // codeBlockStyle: 'fenced',
-        // fence: '```',
-        // emDelimiter: '_',
-        // strongDelimiter: '**'
+        headingStyle: 'atx',
+        bulletListMarker: '-',
+        codeBlockStyle: 'fenced',
+        fence: '```',
+        emDelimiter: '_',
+        strongDelimiter: '**'
     });
     // Add GFM plugin
     service.use(turndownPluginGfm.tables);
-    // service.use(turndownPluginGfm.strikethrough);
-    // service.use(turndownPluginGfm.taskListItems);
+    service.use(turndownPluginGfm.strikethrough);
+    service.use(turndownPluginGfm.taskListItems);
 
     // // Add custom rules with proper typing
     // service.addRule('codeBlocks', {
@@ -71,34 +245,6 @@ const createTurndownService = () => {
 
     return service;
 };
-export const DIALOG_HEIGHTS = {
-    CLIPBOARD_INSPECTOR: 600,
-    CLIPBOARD_INSPECTOR_MAX: 900,
-    DIALOG_CONTENT: 500,
-    BASE_PADDING: 50
-} as const;
-
-export const CONTENT_TYPE_GROUPS = {
-    IMAGE: 'image/',
-    TEXT: 'text/plain',
-    HTML: 'text/html'
-} as const;
-
-export interface ClipboardItem {
-    id: string;
-    kind: string;
-    type: string;
-    as_file: File | null;
-    content?: string | ArrayBuffer | null;
-    convertToMarkdown?: boolean;
-    extractedImages?: ExtractedImage[];
-
-}
-
-export interface ClipboardInspectorData {
-    type: string;
-    items?: ClipboardItem[];
-}
 
 export function inspectClipboard(e: ClipboardEvent): ClipboardInspectorData[] {
     Logger.debug("events", "Inspecting clipboard event", e);
@@ -138,20 +284,12 @@ export function inspectClipboard(e: ClipboardEvent): ClipboardInspectorData[] {
     return data;
 }
 
-interface ClipboardInspectorProps {
-    open: boolean;
-    data: ClipboardInspectorData[];
-    theme?: Theme;
-    onClose: () => void;
-    onSelect: (selectedItems: ClipboardItem[]) => void;
-    defaultLanguage?: string;
-}
-
 export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
     open,
     data,
     onClose,
-    onSelect
+    onSelect,
+    setData
 }) => {
     const [selectedImages, setSelectedImages] = useState<Record<string, boolean>>({});
     const [extractedImages, setExtractedImages] = useState<Record<string, ExtractedImage[]>>({});
@@ -160,11 +298,25 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
     const [_, setSelectAll] = useState(false);
     const [markdownConversion, setMarkdownConversion] = useState<Record<string, boolean>>({});
     const turndownService = React.useMemo(() => createTurndownService(), []);
-    const [showSvgs, setShowSvgs] = useState<Record<string, boolean>>({});
+    const [showSvgs, setShowSvgs] = useState<boolean>(false);
     const [previewContent, setPreviewContent] = useState<Record<string, string>>({});
     const allItems = data.flatMap(group => group.items || []);
     const [selectedLanguages, setSelectedLanguages] = useState<Record<string, string>>({});
-
+    const [activeTab, setActiveTab] = useState<'inspect' | 'create' | 'raw'>('inspect');
+    const [creatorState, setCreatorState] = useState<ClipboardCreatorState>({
+        content: '',
+        mimeType: 'text/plain',
+        additionalMimeTypes: []
+    });
+    const [snackbar, setSnackbar] = useState<{
+        open: boolean;
+        message: string;
+        severity: 'success' | 'error' | 'info' | 'warning';
+    }>({
+        open: false,
+        message: '',
+        severity: 'success'
+    });
     const languageOptions = React.useMemo(() => {
         // Create a Set of detected languages, filtering out undefined values
         const detected = new Set<string>(
@@ -182,6 +334,25 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
 
         return getSortedLanguageOptions(detected);
     }, [data]);
+
+    const handleInspectPaste = React.useCallback((e: ClipboardEvent) => {
+        if (activeTab !== 'inspect') return;
+
+        e.preventDefault();
+        const clipboardData = e.clipboardData;
+        if (!clipboardData) return;
+
+        const newData = inspectClipboard(e);
+        setData(prevData => [...newData]);
+    }, [activeTab, setData]);
+
+    // Add effect to manage paste listener
+    useEffect(() => {
+        if (activeTab === 'inspect' && open) {
+            document.addEventListener('paste', handleInspectPaste);
+            return () => document.removeEventListener('paste', handleInspectPaste);
+        }
+    }, [activeTab, open, handleInspectPaste]);
 
     const getInitialLanguageSelection = (content: string): string => {
         const codeBlocks = extractCodeBlocks(content);
@@ -206,7 +377,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
 
         // Add extracted images
         const itemImages = extractedImages[item.id] || [];
-        const filteredImages = showSvgs[item.id]
+        const filteredImages = showSvgs
             ? itemImages
             : itemImages.filter(img => !img.originalUrl.startsWith('inline-svg'));
 
@@ -257,6 +428,8 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                 group.items?.forEach(item => {
                     // Pre-select HTML items and images, but not plain text
                     if (item.type === CONTENT_TYPE_GROUPS.HTML) {
+                        setShowSvgs(false);
+
                         // Select markdown by default for HTML content
                         setSelectedItems(prev => ({
                             ...prev,
@@ -306,7 +479,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             setSelectedItems({});
             setSelectAll(false);
             setMarkdownConversion({});
-            setShowSvgs({});
+            setShowSvgs(false);
         }
     }, [open, data]);
 
@@ -605,7 +778,7 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
 
                 // Handle extracted images from HTML
                 const extractedItemImages = extractedImages[item.id] || [];
-                const filteredImages = showSvgs[item.id]
+                const filteredImages = showSvgs
                     ? extractedItemImages
                     : extractedItemImages.filter(img => !img.originalUrl.startsWith('inline-svg'));
 
@@ -649,15 +822,11 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             setSelectedItems({});
             setSelectAll(false);
             setMarkdownConversion({});
-            setShowSvgs({});
+            setShowSvgs(false);
         }, 100);
     }, [data, selectedItems, selectedImages, showSvgs, previewContent, extractedImages, selectedLanguages, onSelect, onClose]);
 
-
-
     const renderImagePreview = (images: Array<{ file: File, id: string }>) => {
-        if (!images.length) return null;
-
         const imageState = {
             totalImages: images.length,
             selectedCount: images.filter(({ id }) => selectedImages[id]).length,
@@ -670,33 +839,45 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
         };
 
         return (
-            <Box sx={{ mt: .5 }}>
+            <Box sx={{ mt: 1 }}>
                 <Box sx={{
                     mb: 1,
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center'
                 }}>
-                    <Box sx={{ typography: 'body1' }}>
-                        Images
-                    </Box>
-                    <FormControlLabel
-                        control={
-                            <Checkbox
-                                size="small"
-                                checked={imageState.checked}
-                                indeterminate={imageState.indeterminate}
-                                onChange={(e) => {
-                                    const newSelections = { ...selectedImages };
-                                    images.forEach(({ id }) => {
-                                        newSelections[id] = e.target.checked;
-                                    });
-                                    setSelectedImages(newSelections);
-                                }}
-                            />
-                        }
-                        label={`Select All Images (${imageState.selectedCount}/${imageState.totalImages})`}
-                    />
+                    <Typography variant="body1">
+                        Images {images.length === 0 ? '(none)' : `(${imageState.selectedCount}/${imageState.totalImages})`}
+                    </Typography>
+                    {!showSvgs && (
+                        <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => setShowSvgs(true)}
+                            sx={{ mr: 2, mt: 1 }}  // Add margin-right of 16px (mr: 2 = 16px in MUI)
+                        >
+                            Extract SVGs
+                        </Button>
+                    )}
+                    {images.length > 0 && (
+                        <FormControlLabel
+                            control={
+                                <Checkbox
+                                    size="small"
+                                    checked={imageState.checked}
+                                    indeterminate={imageState.indeterminate}
+                                    onChange={(e) => {
+                                        const newSelections = { ...selectedImages };
+                                        images.forEach(({ id }) => {
+                                            newSelections[id] = e.target.checked;
+                                        });
+                                        setSelectedImages(newSelections);
+                                    }}
+                                />
+                            }
+                            label={'Select All Images'}
+                        />
+                    )}
                 </Box>
                 <ImageList sx={{ maxHeight: 120 }} cols={4} rowHeight={80}>
                     {images.map(({ file, id }) => (
@@ -743,82 +924,97 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
         );
     };
 
-    const handleExtractSvgs = (itemId: string) => {
-        setShowSvgs(prev => ({
-            ...prev,
-            [itemId]: true
-        }));
-    };
-
     const renderItem = (item: ClipboardItem) => {
         if (item.type === CONTENT_TYPE_GROUPS.HTML) {
             return (
                 <Stack spacing={1}>
                     {/* Markdown Option */}
                     <Box>
-                        <FormControlLabel
-                            control={
-                                <Checkbox
-                                    checked={selectedItems[`${item.id}-markdown`] || false}
-                                    onChange={(e) => handleSelectItem(`${item.id}-markdown`, e.target.checked)}
-                                />
-                            }
-                            label="text/markdown (converted from html)"
-                        />
-                        {!showSvgs[item.id] && (
-                            <Button
-                                size="small"
-                                variant="outlined"
-                                onClick={() => handleExtractSvgs(item.id)}
-                                sx={{ mr: 2 }}  // Add margin-right of 16px (mr: 2 = 16px in MUI)
-                            >
-                                Extract SVGs
-                            </Button>
-                        )}
-                        {selectedItems[`${item.id}-markdown`] && (
-                            <FormControl size="small" sx={{ mt: 1, minWidth: 120 }}>
-                                <Select
-                                    value={selectedLanguages[item.id] || 'none'}
-                                    onChange={(e) => {
-                                        setSelectedLanguages(prev => ({
-                                            ...prev,
-                                            [item.id]: e.target.value
-                                        }));
-                                    }}
-                                >
-                                    {languageOptions.map(lang => {
-                                        const codeBlocks = extractCodeBlocks(item.content?.toString() || '');
-                                        const hasLanguage = codeBlocks.some(block => block.language === lang.name);
-                                        return (
-                                            <MenuItem key={lang.name} value={lang.name}>
-                                                {lang.displayName}
-                                                {hasLanguage && ' ✓'}
-                                            </MenuItem>
-                                        );
-                                    })}
-                                </Select>
-                            </FormControl>
-                        )}
-                        {/* Markdown Preview */}
-                        {selectedItems[`${item.id}-markdown`] && (
-                            <Box sx={{
-                                mt: 1,
-                                maxHeight: 200,
-                                overflow: 'auto',
-                                p: 1,
-                                bgcolor: 'background.paper',
-                                borderRadius: 1,
-                                whiteSpace: 'pre-wrap',
-                                fontFamily: 'monospace'
-                            }}>
-                                {previewContent[item.id] || 'Processing...'}
-                            </Box>
-                        )}
-                    </Box>
+                        <Box sx={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                        }}>
+                            <FormControlLabel
+                                // sx={{ ml: 0 }}
+                                control={
+                                    <Checkbox
+                                        checked={selectedItems[`${item.id}-markdown`] || false}
+                                        onChange={(e) => handleSelectItem(`${item.id}-markdown`, e.target.checked)}
+                                    />
+                                }
+                                label="text/markdown (converted from html)"
+                            />
 
+                            {selectedItems[`${item.id}-markdown`] && (() => {
+                                // Extract code blocks once outside of the render
+                                const codeBlocks = extractCodeBlocks(item.content?.toString() || '');
+                                return codeBlocks.length > 0 ? (
+                                    <Autocomplete
+                                        freeSolo
+                                        size="small"
+                                        options={languageOptions}
+                                        sx={{ width: 200 }} // Adjust width as needed
+                                        value={languageOptions.find(lang => lang.name === (selectedLanguages[item.id] || 'none')) || null}
+                                        onChange={(_, newValue) => {
+                                            setSelectedLanguages(prev => ({
+                                                ...prev,
+                                                [item.id]: (typeof newValue === 'string' ? newValue : newValue?.name) || 'none'
+                                            }));
+                                        }}
+                                        onInputChange={(_, newInputValue) => {
+                                            // Handle direct text input
+                                            setSelectedLanguages(prev => ({
+                                                ...prev,
+                                                [item.id]: newInputValue || 'none'
+                                            }));
+                                        }}
+                                        getOptionLabel={(option) => {
+                                            if (typeof option === 'string') return option;
+                                            return option.displayName;
+                                        }}
+                                        renderOption={(props, option) => (
+                                            <MenuItem {...props}>
+                                                {option.displayName}
+                                                {codeBlocks.some(block => block.language === option.name) && ' ✓'}
+                                            </MenuItem>
+                                        )}
+                                        renderInput={(params) => (
+                                            <TextField
+                                                {...params}
+                                                label="Language"
+                                                variant="outlined"
+                                                size="small"
+                                            />
+                                        )}
+                                    />
+                                ) : null;
+                            })()}
+                        </Box>
+
+                        {/* Markdown Preview */}
+                        {
+                            selectedItems[`${item.id}-markdown`] && (
+                                <Box sx={{
+                                    mt: 1,
+                                    maxHeight: 200,
+                                    overflow: 'auto',
+                                    p: 1,
+                                    bgcolor: 'background.paper',
+                                    borderRadius: 1,
+                                    whiteSpace: 'pre-wrap',
+                                    fontFamily: 'monospace'
+                                }}>
+                                    {previewContent[item.id] || 'Processing...'}
+                                </Box>
+                            )
+                        }
+                    </Box>
+                    <Divider />
                     {/* HTML Option */}
                     <Box>
                         <FormControlLabel
+                            // sx={{ ml: 0 }}
                             control={
                                 <Checkbox
                                     checked={selectedItems[`${item.id}-html`] || false}
@@ -876,7 +1072,8 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             </Box>
         );
     };
-    React.useEffect(() => {
+
+    useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (!open) return;
 
@@ -903,6 +1100,49 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
 
     const selectAllState = getSelectAllState(allItems, selectedItems, selectedImages);
 
+    const handleCreateClipboard = async () => {
+        try {
+            const clipboardItem = new ClipboardItem({
+                [creatorState.mimeType]: new Blob([creatorState.content], {
+                    type: creatorState.mimeType
+                }),
+                ...Object.fromEntries(
+                    creatorState.additionalMimeTypes
+                        .filter(mime => mime.type && mime.content)
+                        .map(mime => [
+                            mime.type,
+                            new Blob([mime.content], { type: mime.type })
+                        ])
+                )
+            });
+
+            await navigator.clipboard.write([clipboardItem]);
+            // Show success message
+            setSnackbar({
+                open: true,
+                message: 'Clipboard entry created successfully!',
+                severity: 'success'
+            });
+        } catch (error) {
+            console.error('Failed to create clipboard entry:', error);
+            // Show error message
+            setSnackbar({
+                open: true,
+                message: 'Failed to create clipboard entry',
+                severity: 'error'
+            });
+        }
+    };
+    const creatorHandleAddMimeType = () => {
+        setCreatorState({
+            ...creatorState,
+            additionalMimeTypes: [
+                ...creatorState.additionalMimeTypes,
+                { type: '', content: '' }
+            ]
+        });
+    };
+
     return (
         <Dialog
             open={open}
@@ -918,16 +1158,38 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                 justifyContent: 'space-between',
                 alignItems: 'center'
             }}>
-                Select Content to Include
+                {
+                    activeTab === 'inspect' ? 'Add content to prompt' :
+                        activeTab === 'create' ? 'Add content to clipboard' : ''
+                }
+
+                {/* Select Content to Include */}
                 <IconButton onClick={onClose}>
                     <CloseIcon />
                 </IconButton>
             </DialogTitle>
 
-            <DialogContent sx={{ p: 2 }}>
-                <Stack spacing={1}>
-                    <Box sx={{ mb: 1 }}>
-                        <FormControlLabel
+            <Tabs
+                value={activeTab}
+                onChange={(_, newValue) => setActiveTab(newValue)}
+                sx={{ borderBottom: 1, borderColor: 'divider' }}
+            >
+                <Tab label="Add to Prompt" value="inspect" />
+                <Tab label="Add to Clipboard" value="create" />
+                {/* <Tab label="Raw Inspector" value="raw" /> */}
+            </Tabs>
+            {activeTab === 'inspect' && <>
+                <DialogContent sx={{ p: 2 }}>
+                    <Box sx={{
+                        mb: 1,
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                    }}>
+                        <Typography>
+                            Paste content to inspect clipboard data
+                        </Typography>
+                        < FormControlLabel
                             control={
                                 <Checkbox
                                     checked={selectAllState.checked}
@@ -939,42 +1201,94 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
                                         handleSelectAll(shouldSelectAll);
                                     }} />
                             }
-                            label="Select All Content"
+                            label={`Select All (${selectAllState.selectedCount} selected)`}
                         />
                     </Box>
 
-                    {/* Display all images first */}
-                    {renderImagePreview(data.flatMap(group =>
-                        group.items?.flatMap(item =>
-                            collectItemImages(item)
-                        ) || []
-                    ))}
                     <Divider />
+                    <Box sx={{ mb: 1 }}>
 
+                        {/* Display all images first */}
+                        {renderImagePreview(data.flatMap(group =>
+                            group.items?.flatMap(item =>
+                                collectItemImages(item)
+                            ) || []
+                        ))}
+                    </Box>
+
+                    <Divider />
                     {/* Then display other content */}
                     {data.map(group =>
                         group.items?.map((item, index) => (
                             <React.Fragment key={item.id}>
-                                <Box>
-                                    {renderItem(item)}
-                                </Box>
+                                {renderItem(item)}
                                 <Divider />
                             </React.Fragment>
                         ))
                     )}
-                </Stack>
-            </DialogContent>
+                </DialogContent>
 
-            <DialogActions>
-                <Button onClick={onClose}>Cancel</Button>
-                <Button
-                    variant="contained"
-                    onClick={handleConfirm}
-                    disabled={Object.values(selectedItems).every(v => !v)}
+                <DialogActions>
+                    <Button
+                        variant="contained"
+                        onClick={handleConfirm}
+                        disabled={Object.values(selectedItems).every(v => !v)}
+                    >
+                        Add Selected
+                    </Button>
+                    <Button onClick={onClose}>Cancel</Button>
+
+                </DialogActions>
+            </>}
+            {
+                activeTab === 'create' && <>
+                    <DialogContent sx={{ p: 2 }}>
+
+                        <ClipboardCreator
+                            state={creatorState}
+                            onChange={setCreatorState}
+                        // onCreateClipboard={handleCreateClipboard}
+                        />
+
+                    </DialogContent>
+                    <DialogActions>
+                        <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+                            <Button
+                                onClick={creatorHandleAddMimeType}
+                                startIcon={<AddIcon />}
+                            >
+                                Add MIME Type
+                            </Button>
+                            <Button
+                                variant="contained"
+                                onClick={handleCreateClipboard}
+                                disabled={!creatorState.content}
+                            >
+                                Create Clipboard Entry
+                            </Button>
+                            <Button onClick={onClose}>Cancel</Button>
+
+                        </Box>
+                    </DialogActions>
+                </>
+            }
+            {/* </Stack > */}
+
+            <Snackbar
+                open={snackbar.open}
+                autoHideDuration={4000}
+                onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+            >
+                <Alert
+                    onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
+                    severity={snackbar.severity}
+                    sx={{ width: '100%' }}
                 >
-                    Add Selected
-                </Button>
-            </DialogActions>
-        </Dialog>
+                    {snackbar.message}
+                </Alert>
+            </Snackbar>
+
+        </Dialog >
     );
 };
