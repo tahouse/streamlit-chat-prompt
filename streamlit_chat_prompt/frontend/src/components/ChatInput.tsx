@@ -7,8 +7,14 @@ import {
   ImageList,
   ImageListItem,
   Paper,
-  Snackbar
+  Snackbar,
+  Typography
 } from "@mui/material";
+import {
+  PictureAsPdf,
+  Description,
+  AudioFile
+} from '@mui/icons-material';
 import React from "react";
 import {
   Streamlit,
@@ -23,6 +29,7 @@ import { PromptData } from "./PromptData";
 import { Props } from "./Props";
 import { State } from "./State";
 import { ChatTextField } from "./TextField";
+import { SupportedFile, SUPPORTED_FILE_TYPES } from './Types';
 
 export class ChatInput extends StreamlitComponentBase<State, Props> {
   private fileInputRef: React.RefObject<HTMLInputElement>;
@@ -42,6 +49,7 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
         state: true,
         images: true,
         events: true,
+        files: true,
       },
     });
     Logger.info("component", "Logger configuration:", Logger.getConfiguration());
@@ -51,7 +59,8 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
     this.state = {
       uuid: "",
       text: defaultValue.text,
-      images: [],
+      images: [], // Keeping this for backward compatibility
+      files: [],
       isFocused: false,
       disabled: this.props.args?.disabled || false,
       userHasInteracted: false,
@@ -71,7 +80,7 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
     Logger.debug("component", "Initial construction", this.props);
 
     // Handle default images if present
-    this.setImagesFromDefault(defaultValue);
+    this.setFilesFromDefault(defaultValue);
 
     this.fileInputRef = React.createRef<HTMLInputElement>();
     this.textFieldRef = React.createRef<HTMLInputElement>();
@@ -146,47 +155,98 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
           navigator.userAgent.match(/Windows Phone/i))) !== null
     );
   }
-  private async setImagesFromDefault(defaultValue: PromptData) {
-    if (defaultValue.images && defaultValue.images.length > 0) {
-      // Convert base64 strings to Files
-      const files = await Promise.all(
-        defaultValue.images.map(async (dataUrl: string) => {
-          const response = await fetch(dataUrl);
-          const blob = await response.blob();
-          const fileName = `default-image-${Math.random()
-            .toString(36)
-            .slice(2)}.${blob.type.split("/")[1]}`;
-          return new File([blob], fileName, { type: blob.type });
-        })
-      );
-
-      // Process images and collect them
-      const processedImages: File[] = [];
-      for (const file of files) {
-        const processedImage = await processImage(file, this.maxImageSize);
-        if (processedImage) {
-          processedImages.push(processedImage);
-        } else {
-          Logger.warn("images", "Failed to process image", file.name);
-          this.showNotification(
-            `Could not compress "${file.name}" to under ${(
-              this.maxImageSize /
-              1024 /
-              1024
-            ).toFixed(1)} MB. Try a smaller image.`,
-            "warning"
-          );
-        }
+  private async processFile(file: File): Promise<SupportedFile | null> {
+    try {
+      if (file.size > this.maxImageSize) {
+        this.showNotification(
+          `File "${file.name}" exceeds size limit of ${(this.maxImageSize / 1024 / 1024).toFixed(1)} MB`,
+          "error"
+        );
+        return null;
       }
 
-      // Replace the images in the state with the new processed images
-      this.setState(
-        {
-          images: processedImages,
-          userHasInteracted: true,
-        }, () => {
-          this.updateFrameHeight(); // Add this if you need to update height after images load
-        });
+      if (SUPPORTED_FILE_TYPES.IMAGE.includes(file.type)) {
+        const processedImage = await processImage(file, this.maxImageSize);
+        if (processedImage) {
+          return {
+            file: processedImage,
+            type: 'image',
+            preview: URL.createObjectURL(processedImage)
+          };
+        }
+      } else if (SUPPORTED_FILE_TYPES.PDF.includes(file.type)) {
+        return {
+          file,
+          type: 'pdf',
+          preview: 'pdf-icon.png' // You can add a PDF icon image
+        };
+      } else if (SUPPORTED_FILE_TYPES.MARKDOWN.includes(file.type)) {
+        return {
+          file,
+          type: 'markdown'
+        };
+      } else if (SUPPORTED_FILE_TYPES.AUDIO.includes(file.type)) {
+        return {
+          file,
+          type: 'audio'
+        };
+      }
+
+      this.showNotification(`Unsupported file type: ${file.type}`, "error");
+      return null;
+    } catch (error) {
+      Logger.error("files", `Error processing file ${file.name}:`, error);
+      this.showNotification(`Error processing file: ${file.name}`, "error");
+      return null;
+    }
+  }
+  private async setFilesFromDefault(defaultValue: PromptData) {
+    if (defaultValue.files && defaultValue.files.length > 0) {
+      const processedFiles: SupportedFile[] = [];
+      
+      for (const fileData of defaultValue.files) {
+        try {
+          const response = await fetch(fileData.url);
+          const blob = await response.blob();
+          const fileName = fileData.name || `default-file-${Math.random().toString(36).slice(2)}`;
+          const file = new File([blob], fileName, { type: fileData.type });
+          
+          if (fileData.type.startsWith('image/')) {
+            const processedImage = await processImage(file, this.maxImageSize);
+            if (processedImage) {
+              processedFiles.push({
+                file: processedImage,
+                type: 'image',
+                preview: URL.createObjectURL(processedImage)
+              });
+            }
+          } else if (SUPPORTED_FILE_TYPES.PDF.includes(fileData.type)) {
+            processedFiles.push({
+              file,
+              type: 'pdf'
+            });
+          } else if (SUPPORTED_FILE_TYPES.MARKDOWN.includes(fileData.type)) {
+            processedFiles.push({
+              file,
+              type: 'markdown'
+            });
+          } else if (SUPPORTED_FILE_TYPES.AUDIO.includes(fileData.type)) {
+            processedFiles.push({
+              file,
+              type: 'audio'
+            });
+          }
+        } catch (error) {
+          Logger.warn("files", `Failed to process file: ${error}`);
+        }
+      }
+  
+      this.setState({
+        files: processedFiles,
+        userHasInteracted: true,
+      }, () => {
+        this.updateFrameHeight();
+      });
     }
   }
   // Define message handler as class method
@@ -288,8 +348,8 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
 
   public componentDidUpdate() {
     super.componentDidUpdate();
-    if (!this.isShowingDialog && (this.state.images.length > 0 || this.state.text)) {
-      this.updateFrameHeight(); // Changed from Streamlit.setFrameHeight()
+    if (!this.isShowingDialog && (this.state.files.length > 0 || this.state.text)) {
+      this.updateFrameHeight();
     }
     // Get current default values
     const newDefault = PromptData.fromProps(this.props);
@@ -307,11 +367,10 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
 
     // Determine when to apply defaults
     const shouldApplyDefault =
-      // forceApplyDefault ||
       !this.state.userHasInteracted &&
       !isRecentSubmission &&
       this.state.text === "" &&
-      this.state.images.length === 0;
+      this.state.files.length === 0;  // Changed from images to files
 
     if (shouldApplyDefault) {
       Logger.debug("events", "Applying default", {
@@ -324,9 +383,9 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
         userHasInteracted: false,
       });
 
-      // Handle image defaults if needed
-      if (newDefault.images?.length > 0) {
-        this.setImagesFromDefault(newDefault);
+      // Handle file defaults if present
+      if (newDefault.files?.length > 0) {  // Changed from images to files
+        this.setFilesFromDefault(newDefault);
       }
     }
   }
@@ -440,9 +499,14 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
     );
 
     for (const file of files) {
-      await this.processAndAddImage(file);
+      const processedFile = await this.processFile(file);
+      if (processedFile) {
+        this.setState(prevState => ({
+          files: [...prevState.files, processedFile],
+          userHasInteracted: true
+        }));
+      }
     }
-    this.setState({ userHasInteracted: true });
 
     this.focusTextField();
   }
@@ -515,35 +579,39 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
     Logger.debug("events", "Current state", this.state);
 
     if (this.state.disabled) return;
+    if (!this.state.text && this.state.files.length === 0) return;
 
-    if (!this.state.text && this.state.images.length === 0) return;
-
-    const imagePromises = this.state.images.map((image) => {
+    const filePromises = this.state.files.map(async (file) => {
       return new Promise((resolve) => {
         const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result);
-        reader.readAsDataURL(image);
+        reader.onloadend = () => resolve({
+          type: file.type,
+          data: reader.result,
+          name: file.file.name
+        });
+        reader.readAsDataURL(file.file);
       });
     });
 
-    // Wait for all images to be processed
-    const imageData = await Promise.all(imagePromises);
+    const fileData = await Promise.all(filePromises);
 
     const submission = {
       uuid: generateUUID(),
       text: this.state.text,
-      images: imageData,
+      files: fileData,
     };
+
     Logger.debug("events", "Submission:", submission);
 
     Streamlit.setComponentValue(submission);
     this.setState({
       uuid: "",
       text: "",
-      images: [],
+      files: [],
       userHasInteracted: false,
-      lastSubmissionTime: Date.now(), // Record submission time
+      lastSubmissionTime: Date.now(),
     });
+
     this.focusTextField();
     Logger.debug("events", "Submission complete");
     Logger.groupEnd("events");
@@ -552,6 +620,19 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
   removeImage(index: number) {
     this.setState({
       images: this.state.images.filter((_, i) => i !== index),
+    });
+    this.focusTextField();
+  }
+
+  removeFile(index: number) {
+    this.setState(prevState => {
+      const newFiles = [...prevState.files];
+      const removedFile = newFiles[index];
+      if (removedFile.preview) {
+        URL.revokeObjectURL(removedFile.preview);
+      }
+      newFiles.splice(index, 1);
+      return { files: newFiles };
     });
     this.focusTextField();
   }
@@ -606,43 +687,66 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
 
           }}
         >
-          {this.state.images.length > 0 && (
-            <ImageList sx={{ maxHeight: 100, m: 0 }} cols={4} rowHeight={80}>
-              {this.state.images.map((image, index) => {
-                const objectUrl = URL.createObjectURL(image);
-                return (
-                  <ImageListItem key={index} sx={{ position: "relative" }}>
+          {this.state.files.length > 0 && (
+            <Box sx={{ maxHeight: 100, m: 0, overflowX: 'auto', whiteSpace: 'nowrap' }}>
+              {this.state.files.map((file, index) => (
+                <Box
+                  key={index}
+                  sx={{
+                    display: 'inline-flex',
+                    position: 'relative',
+                    m: 0.5,
+                    borderRadius: 1,
+                    border: `1px solid ${theme?.secondaryBackgroundColor}`,
+                    backgroundColor: `${theme?.secondaryBackgroundColor}33`,
+                  }}
+                >
+                  {file.type === 'image' && file.preview && (
                     <img
-                      src={objectUrl}
+                      src={file.preview}
                       alt={`Upload ${index}`}
-                      loading="lazy"
-                      style={{ objectFit: "cover", height: "80px" }}
-                      onLoad={(e) => {
-                        URL.revokeObjectURL(objectUrl);
-                      }}
+                      style={{ height: '80px', width: 'auto', objectFit: 'cover' }}
                     />
-                    <IconButton
-                      size="small"
-                      disabled={disabled}
-                      sx={{
-                        position: "absolute",
-                        top: 0,
-                        right: 0,
-                        padding: "4px",
-                        backgroundColor: `${theme?.secondaryBackgroundColor}cc`,
-                        color: theme?.textColor,
-                        "&:hover": {
-                          backgroundColor: `${theme?.primaryColor}33`,
-                        },
-                      }}
-                      onClick={() => this.removeImage(index)}
-                    >
-                      <CloseIcon fontSize="small" />
-                    </IconButton>
-                  </ImageListItem>
-                );
-              })}
-            </ImageList>
+                  )}
+                  {file.type === 'pdf' && (
+                    <Box sx={{ p: 1, display: 'flex', alignItems: 'center' }}>
+                      <PictureAsPdf sx={{ color: theme?.textColor }} />
+                      <Typography sx={{ ml: 1, color: theme?.textColor }}>{file.file.name}</Typography>
+                    </Box>
+                  )}
+                  {file.type === 'markdown' && (
+                    <Box sx={{ p: 1, display: 'flex', alignItems: 'center' }}>
+                      <Description sx={{ color: theme?.textColor }} />
+                      <Typography sx={{ ml: 1, color: theme?.textColor }}>{file.file.name}</Typography>
+                    </Box>
+                  )}
+                  {file.type === 'audio' && (
+                    <Box sx={{ p: 1, display: 'flex', alignItems: 'center' }}>
+                      <AudioFile sx={{ color: theme?.textColor }} />
+                      <Typography sx={{ ml: 1, color: theme?.textColor }}>{file.file.name}</Typography>
+                    </Box>
+                  )}
+                  <IconButton
+                    size="small"
+                    disabled={disabled}
+                    sx={{
+                      position: "absolute",
+                      top: 0,
+                      right: 0,
+                      padding: "4px",
+                      backgroundColor: `${theme?.secondaryBackgroundColor}cc`,
+                      color: theme?.textColor,
+                      "&:hover": {
+                        backgroundColor: `${theme?.primaryColor}33`,
+                      },
+                    }}
+                    onClick={() => this.removeFile(index)}
+                  >
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+              ))}
+            </Box>
           )}
           <Box
             sx={{
@@ -659,7 +763,7 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
             <input
               type="file"
               multiple
-              accept="image/*"
+              accept="image/*,.pdf,text/markdown,.md,audio/*"
               hidden
               ref={this.fileInputRef}
               onChange={this.handleFileUpload}

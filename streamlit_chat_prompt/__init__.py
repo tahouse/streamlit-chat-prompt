@@ -13,7 +13,7 @@ from pydantic import BaseModel
 _RELEASE = True
 
 logger = logging.getLogger("streamlit_chat_prompt")
-logger.setLevel(logging.WARN)
+logger.setLevel(logging.WARN)  # change log level
 handler = logging.StreamHandler()
 handler.setFormatter(
     logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -58,12 +58,24 @@ class ImageData(BaseModel):
     type: str
     format: str
     data: str
+    name: Optional[str] = None
+
+
+class FileData(BaseModel):
+    type: str
+    format: str
+    data: str
+    name: Optional[str] = None
 
 
 class PromptReturn(BaseModel):
     text: Optional[str] = None
     images: Optional[List[ImageData]] = None
+    files: Optional[List[FileData]] = None
+    uuid: Optional[str] = None
 
+
+__all__ = ["prompt", "PromptReturn", "ImageData", "FileData"]
 
 _prompt_main_singleton_key: Optional[str] = None
 
@@ -158,14 +170,33 @@ def prompt(
     # Convert images to base64 strings if present in default
     default_value = None
     if default:
-        images = []
+        processed_files = []
+
+        # Handle legacy images
         if default.images:
-            images = [
-                f"data:{img.type};{img.format},{img.data}" for img in default.images
-            ]
+            for img in default.images:
+                processed_files.append(
+                    {
+                        "data": f"data:{img.type};{img.format},{img.data}",
+                        "type": img.type,
+                        "name": "image",
+                    }
+                )
+
+        # Handle new files
+        if default.files:
+            for file in default.files:
+                processed_files.append(
+                    {
+                        "data": f"data:{file.type};{file.format},{file.data}",
+                        "type": file.type,
+                        "name": getattr(file, "name", None) or "file",
+                    }
+                )
+
         default_value = {
             "text": default.text or "",
-            "images": images,
+            "files": processed_files,
             "uuid": None,  # No UUID for default value
         }
 
@@ -206,24 +237,36 @@ def prompt(
     ):
         # we have a new prompt return
         st.session_state[f"chat_prompt_{key}_prev_uuid"] = component_value["uuid"]
-        images = []
-        # Process any images
-        if component_value.get("images"):
-            for image_str in component_value["images"]:
-                parts = image_str.split(";")
-                image_type = parts[0].split(":")[1]
-                image_format = parts[1].split(",")[0]
-                image_data = parts[1].split(",")[1]
-                images.append(
-                    ImageData(type=image_type, format=image_format, data=image_data)
-                )
+        processed_files = []
 
-        if not images and not component_value.get("text"):
+        # Process any files
+        if component_value.get("files"):
+            for file_data in component_value["files"]:
+                if isinstance(file_data, str):  # If it's a data URL string
+                    parts = file_data.split(";")
+                    file_type = parts[0].split(":")[1]
+                    file_format = parts[1].split(",")[0]
+                    file_data_content = parts[1].split(",")[1]
+                    processed_files.append(
+                        FileData(
+                            type=file_type,
+                            format=file_format,
+                            data=file_data_content,
+                            name=None,
+                        )
+                    )
+                else:  # If it's already a dictionary
+                    processed_files.append(FileData(**file_data))
+
+        if not processed_files and not component_value.get("text"):
             return None
 
+        # Create return object with both files and images (for backward compatibility)
+        images = [f for f in processed_files if f.type.startswith("image/")]
         return PromptReturn(
             text=component_value.get("text"),
-            images=images,
+            files=processed_files,
+            images=images if images else None,
         )
     else:
         return None
