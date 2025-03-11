@@ -238,6 +238,7 @@ def prompt(
         # we have a new prompt return
         st.session_state[f"chat_prompt_{key}_prev_uuid"] = component_value["uuid"]
         processed_files = []
+        processed_images = []  # Separate list for images
 
         # Process any files
         if component_value.get("files"):
@@ -247,26 +248,46 @@ def prompt(
                     file_type = parts[0].split(":")[1]
                     file_format = parts[1].split(",")[0]
                     file_data_content = parts[1].split(",")[1]
-                    processed_files.append(
-                        FileData(
+
+                    file = FileData(
+                        type=file_type,
+                        format=file_format,
+                        data=file_data_content,
+                        name=None
+                    )
+
+                    processed_files.append(file)
+
+                    # If it's an image, also add to images list
+                    if file_type.startswith('image/'):
+                        processed_images.append(ImageData(
                             type=file_type,
                             format=file_format,
                             data=file_data_content,
-                            name=None,
-                        )
-                    )
+                            name=None
+                        ))
+
                 else:  # If it's already a dictionary
-                    processed_files.append(FileData(**file_data))
+                    file = FileData(**file_data)
+                    processed_files.append(file)
+
+                    # If it's an image, also add to images list
+                    if file.type.startswith('image/'):
+                        processed_images.append(ImageData(
+                            type=file.type,
+                            format=file.format,
+                            data=file.data,
+                            name=getattr(file, 'name', None)
+                        ))
 
         if not processed_files and not component_value.get("text"):
             return None
 
-        # Create return object with both files and images (for backward compatibility)
-        images = [f for f in processed_files if f.type.startswith("image/")]
+        # Create return object with both files and images
         return PromptReturn(
             text=component_value.get("text"),
             files=processed_files,
-            images=images if images else None,
+            images=processed_images if processed_images else None
         )
     else:
         return None

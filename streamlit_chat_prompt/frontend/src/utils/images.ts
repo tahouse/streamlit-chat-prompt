@@ -40,16 +40,7 @@ export async function processImage(file: File, maxSize: number): Promise<File | 
         type: file.type,
     });
 
-    // Check if the original file is already small enough
-    const initialSizeCheck = await checkFileSize(file, maxSize);
-    if (initialSizeCheck.isValid) {
-        Logger.debug(
-            "images",
-            "Image already under size limit, returning original"
-        );
-        return file;
-    }
-
+    // Check dimensions before compression
     const img = new Image();
     const imgUrl = URL.createObjectURL(file);
 
@@ -59,6 +50,18 @@ export async function processImage(file: File, maxSize: number): Promise<File | 
             img.onerror = reject;
             img.src = imgUrl;
         });
+        
+        // Check if dimensions exceed Bedrock's limits (8000px)
+        const MAX_DIMENSION = 8000;
+        if (img.width > MAX_DIMENSION || img.height > MAX_DIMENSION) {
+            Logger.warn(
+                "images",
+                `Image exceeds maximum dimensions of ${MAX_DIMENSION}px: ${img.width}x${img.height}`
+            );
+            URL.revokeObjectURL(imgUrl);
+            return null;
+        }
+        
         Logger.debug("images", "Image loaded:", {
             originalDimensions: `${img.width}x${img.height}`,
         });

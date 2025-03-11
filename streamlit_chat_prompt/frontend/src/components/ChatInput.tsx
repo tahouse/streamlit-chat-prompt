@@ -37,6 +37,14 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
   private maxImageSize: number;
   private isShowingDialog: boolean = false;
 
+  // set limits based on Bedrock Converse API
+  // https://docs.aws.amazon.com/bedrock/latest/userguide/conversation-inference-call.html
+  private readonly MAX_DOCUMENT_SIZE = 4.5 * 1024 * 1024; // 4.5MB for PDFs and other documents
+  private readonly MAX_IMAGE_SIZE = 3.75 * 1024 * 1024;   // 3.75MB for images
+  private readonly MAX_DOCUMENT_COUNT = 5;                // Max 5 documents
+  private readonly MAX_IMAGE_COUNT = 20;  
+
+
   constructor(props: Props) {
     super(props as any);
 
@@ -157,16 +165,52 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
   }
   private async processFile(file: File): Promise<SupportedFile | null> {
     try {
-      if (file.size > this.maxImageSize) {
+      const isImage = file.type.startsWith('image/') || 
+                   ['jpg', 'jpeg', 'png', 'gif', 'webp'].some(ext => 
+                     file.name.toLowerCase().endsWith(`.${ext}`));
+    
+      const isDocument = ['pdf', 'csv', 'doc', 'docx', 'xls', 'xlsx', 'html', 'txt', 'md']
+                        .some(ext => file.name.toLowerCase().endsWith(`.${ext}`)) ||
+                        ['application/pdf', 'text/markdown'].includes(file.type);
+
+      const maxAllowedSize = isImage ? this.MAX_IMAGE_SIZE : this.MAX_DOCUMENT_SIZE;
+
+
+      if (file.size > maxAllowedSize) {
+        const sizeInMb = (maxAllowedSize / (1024 * 1024)).toFixed(2);
         this.showNotification(
-          `File "${file.name}" exceeds size limit of ${(this.maxImageSize / 1024 / 1024).toFixed(1)} MB`,
+          `File "${file.name}" exceeds the ${isImage ? 'image' : 'document'} size limit of ${sizeInMb}MB`,
           "error"
         );
         return null;
       }
 
+      // Check count limits for both file types
+      const currentDocumentCount = this.state.files.filter(f => 
+        !f.type.startsWith('image')).length;
+        
+      const currentImageCount = this.state.files.filter(f => 
+        f.type === 'image').length;
+      
+      if (isDocument && currentDocumentCount >= this.MAX_DOCUMENT_COUNT) {
+        this.showNotification(
+          `You can only include up to ${this.MAX_DOCUMENT_COUNT} documents per conversation`,
+          "error"
+        );
+        return null;
+      }
+    
+      if (isImage && currentImageCount >= this.MAX_IMAGE_COUNT) {
+        this.showNotification(
+          `You can only include up to ${this.MAX_IMAGE_COUNT} images per conversation`,
+          "error"
+        );
+        return null;
+      }
+
+      // Check file by MIME type first
       if (SUPPORTED_FILE_TYPES.IMAGE.includes(file.type)) {
-        const processedImage = await processImage(file, this.maxImageSize);
+        const processedImage = await processImage(file, this.MAX_IMAGE_SIZE);
         if (processedImage) {
           return {
             file: processedImage,
@@ -177,8 +221,7 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
       } else if (SUPPORTED_FILE_TYPES.PDF.includes(file.type)) {
         return {
           file,
-          type: 'pdf',
-          preview: 'pdf-icon.png' // You can add a PDF icon image
+          type: 'pdf'
         };
       } else if (SUPPORTED_FILE_TYPES.MARKDOWN.includes(file.type)) {
         return {
@@ -188,6 +231,31 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
       } else if (SUPPORTED_FILE_TYPES.AUDIO.includes(file.type)) {
         return {
           file,
+          type: 'audio'
+        };
+      }
+
+      // If MIME type check failed, try extension-based detection
+      const fileName = file.name.toLowerCase();
+      if (fileName.endsWith('.md') || fileName.endsWith('.markdown')) {
+        // Force the file type to be markdown
+        const markdownFile = new File([file], file.name, { type: 'text/markdown' });
+        return {
+          file: markdownFile,
+          type: 'markdown'
+        };
+      } else if (fileName.endsWith('.pdf')) {
+        const pdfFile = new File([file], file.name, { type: 'application/pdf' });
+        return {
+          file: pdfFile,
+          type: 'pdf'
+        };
+      } else if (fileName.endsWith('.mp3') || fileName.endsWith('.wav') || fileName.endsWith('.ogg')) {
+        const audioType = fileName.endsWith('.mp3') ? 'audio/mpeg' : 
+                          fileName.endsWith('.wav') ? 'audio/wav' : 'audio/ogg';
+        const audioFile = new File([file], file.name, { type: audioType });
+        return {
+          file: audioFile,
           type: 'audio'
         };
       }
@@ -584,11 +652,34 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
     const filePromises = this.state.files.map(async (file) => {
       return new Promise((resolve) => {
         const reader = new FileReader();
-        reader.onloadend = () => resolve({
-          type: file.type,
-          data: reader.result,
-          name: file.file.name
-        });
+        reader.onloadend = () => {
+          // Get file format from extension or MIME type
+          let format = "base64";
+          let fileFormat: string;
+          
+          if (file.type === 'pdf') {
+            fileFormat = 'pdf';
+          } else if (file.type === 'markdown') {
+            fileFormat = 'md';
+          } else if (file.type === 'audio') {
+            fileFormat = file.file.type.split('/')[1];
+          } else if (file.type === 'image') {
+            fileFormat = file.file.type.split('/')[1];
+          } else {
+            fileFormat = file.file.name.split('.').pop() || 'unknown';
+          }
+    
+          // Get data without the data URL prefix
+          const dataString = reader.result as string;
+          const data = dataString.split(',')[1]; // Remove data:type/subtype;base64, prefix
+    
+          resolve({
+            type: file.file.type,
+            format: format,  // Always include format
+            data: data,
+            name: file.file.name
+          });
+        };
         reader.readAsDataURL(file.file);
       });
     });
