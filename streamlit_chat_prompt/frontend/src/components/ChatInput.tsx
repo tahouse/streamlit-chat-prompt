@@ -10,8 +10,7 @@ import {
 } from "@mui/material";
 import {
   PictureAsPdf,
-  Description,
-  AudioFile
+  Description
 } from '@mui/icons-material';
 import React from "react";
 import {
@@ -19,7 +18,7 @@ import {
   StreamlitComponentBase
 } from "streamlit-component-lib";
 
-import { checkFileSize, processImage } from "../utils/images";
+import { processImage } from "../utils/images";
 import { Logger } from "../utils/logger";
 import { generateUUID } from "../utils/uuid";
 import { ClipboardInspector, ClipboardInspectorData, ClipboardItem, DIALOG_HEIGHTS, inspectClipboard } from "./ClipboardInspector";
@@ -27,7 +26,7 @@ import { PromptData } from "./PromptData";
 import { Props } from "./Props";
 import { State } from "./State";
 import { ChatTextField } from "./TextField";
-import { SupportedFile, SUPPORTED_FILE_TYPES } from './Types';
+import { SupportedFile, SUPPORTED_FILE_TYPES, getAcceptedFileString } from './Types';
 
 export class ChatInput extends StreamlitComponentBase<State, Props> {
   private fileInputRef: React.RefObject<HTMLInputElement>;
@@ -70,7 +69,6 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
     this.state = {
       uuid: "",
       text: defaultValue.text,
-      images: [], // Keeping this for backward compatibility
       files: [],
       isFocused: false,
       disabled: this.props.args?.disabled || false,
@@ -100,7 +98,6 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
     this.handleSubmit = this.handleSubmit.bind(this);
     this.handleKeyDown = this.handleKeyDown.bind(this);
     this.handleFileUpload = this.handleFileUpload.bind(this);
-    this.removeImage = this.removeImage.bind(this);
     this.handleTextChange = this.handleTextChange.bind(this);
     this.handlePasteEvent = this.handlePasteEvent.bind(this);
   }
@@ -149,6 +146,13 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
       e.preventDefault();
       const files = Array.from(clipboardData.files);
       for (const file of files) {
+        if (this.isDuplicateFile(file, this.state.files)) {
+          this.showNotification(
+            `File "${file.name}" is already attached`,
+            "warning"
+          );
+          continue;
+        }
         const processedFile = await this.processFile(file);
         if (processedFile) {
           this.setState(prevState => ({
@@ -189,11 +193,26 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
           navigator.userAgent.match(/Windows Phone/i))) !== null
     );
   }
+  private isDuplicateFile(newFile: File, existingFiles: SupportedFile[]): boolean {
+    return existingFiles.some(existing => 
+      existing.file.name === newFile.name && 
+      existing.file.size === newFile.size &&
+      existing.type === (newFile.type.startsWith('image/') ? 'image' : 
+                        newFile.type === 'application/pdf' ? 'pdf' : 
+                        'markdown')
+    );
+  }
   private async processFile(file: File): Promise<SupportedFile | null> {
     try {
       const isImage = file.type.startsWith('image/');
+      const isPDF = SUPPORTED_FILE_TYPES.PDF.includes(file.type) || 
+                    file.name.toLowerCase().endsWith('.pdf');
+      const isMarkdown = SUPPORTED_FILE_TYPES.MARKDOWN.includes(file.type) || 
+                    file.name.toLowerCase().endsWith('.md');
+
+      // Determine file type and limits
       const limits = isImage ? this.FILE_LIMITS.IMAGE : this.FILE_LIMITS.DOCUMENT;
-  
+
       // Check file size
       if (file.size > limits.maxSize) {
         const sizeInMb = (limits.maxSize / (1024 * 1024)).toFixed(1);
@@ -203,20 +222,6 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
         );
         return null;
       }
-
-      // Check count limits
-      const currentCount = this.state.files.filter(f => 
-        isImage ? f.type === 'image' : f.type !== 'image'
-      ).length;
-  
-      if (currentCount >= limits.maxCount) {
-        this.showNotification(
-          `You can only include up to ${limits.maxCount} ${isImage ? 'images' : 'documents'}`,
-          "error"
-        );
-        return null;
-      }
-  
       // Process based on file type
       if (isImage) {
         const processedImage = await this.processImageFile(file);
@@ -228,17 +233,25 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
             size: processedImage.size
           };
         }
-      } else {
-        // Handle other file types
-        const fileType = this.detectFileType(file);
-        if (fileType) {
-          return {
-            file,
-            type: fileType,
-            preview: fileType === 'pdf' ? 'pdf-icon.png' : undefined,
-            size: file.size
-          };
-        }
+      } else if (isPDF) {
+        return {
+          file,
+          type: 'pdf',
+          preview: undefined,
+          size: file.size
+        };
+      } else if (isMarkdown) {
+        const markdownFile = file.type.includes('markdown') ? file : 
+          new File([file], file.name, { type: 'text/markdown' });
+          
+        const preview = await this.generateMarkdownPreview(file);
+        
+        return {
+          file: markdownFile,
+          type: 'markdown',
+          preview,
+          size: file.size
+        };
       }
 
       this.showNotification(`Unsupported file type: ${file.type}`, "error");
@@ -279,18 +292,19 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
     }
   }
   
-  private detectFileType(file: File): SupportedFile['type'] | null {
-    if (SUPPORTED_FILE_TYPES.PDF.includes(file.type) || file.name.toLowerCase().endsWith('.pdf')) {
-      return 'pdf';
+  private async generateMarkdownPreview(file: File): Promise<string> {
+    try {
+      const text = await file.text();
+      // Get first 100 characters or first 3 lines, whichever is shorter
+      const lines = text.split('\n', 4);
+      const preview = lines.slice(0, 3).join('\n');
+      return preview.length > 100 ? preview.substring(0, 100) + '...' : preview;
+    } catch (error) {
+      Logger.warn("files", `Could not generate markdown preview for ${file.name}:`, error);
+      return '';
     }
-    if (SUPPORTED_FILE_TYPES.MARKDOWN.includes(file.type) || file.name.toLowerCase().endsWith('.md')) {
-      return 'markdown';
-    }
-    if (SUPPORTED_FILE_TYPES.AUDIO.includes(file.type)) {
-      return 'audio';
-    }
-    return null;
   }
+  
   private async setFilesFromDefault(defaultValue: PromptData) {
     if (defaultValue.files && defaultValue.files.length > 0) {
       const processedFiles: SupportedFile[] = [];
@@ -322,12 +336,6 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
             processedFiles.push({
               file,
               type: 'markdown',
-              size: file.size,
-            });
-          } else if (SUPPORTED_FILE_TYPES.AUDIO.includes(fileData.type)) {
-            processedFiles.push({
-              file,
-              type: 'audio',
               size: file.size,
             });
           }
@@ -520,64 +528,6 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
     });
   };
 
-  private async processAndAddImage(file: File) {
-    if (!file.type.startsWith("image/")) {
-      Logger.debug("images", "Skipping non-image file", file.name);
-      this.showNotification("Only image files are supported", "error");
-      return;
-    }
-
-    try {
-      Logger.debug("images", "Processing file", file.name);
-
-      const processedImage = await processImage(file, this.maxImageSize);
-      if (processedImage) {
-        const sizeCheck = await checkFileSize(processedImage, this.maxImageSize);
-        if (sizeCheck.isValid) {
-          Logger.debug("images", "Successfully processed image:", {
-            name: file.name,
-            originalSize: `${(file.size / 1024 / 1024).toFixed(2)}MB`,
-            finalFileSize: `${(sizeCheck.fileSize / 1024 / 1024).toFixed(2)}MB`,
-            finalBase64Size: `${(sizeCheck.base64Size / 1024 / 1024).toFixed(
-              2
-            )}MB`,
-          });
-
-          this.setState(
-            (prevState) => ({
-              images: [...prevState.images, processedImage],
-              userHasInteracted: true,
-            }),
-            () => {
-              this.updateFrameHeight(); // Add this if you need to update height after adding image
-            }
-          );
-        } else {
-          throw new Error("Processed image still exceeds size limits");
-        }
-      } else {
-        Logger.warn("images", "Failed to process image", file.name);
-        this.showNotification(
-          `Could not compress "${file.name}" to under ${(
-            this.maxImageSize /
-            1024 /
-            1024
-          ).toFixed(1)} MB. Try a smaller image.`,
-          "warning"
-        );
-      }
-    } catch (err: unknown) {
-      Logger.error("images", `Error processing file ${file.name}:`, err);
-      const errorMessage =
-        err instanceof Error ? err.message : "Unknown error occurred";
-      this.showNotification(
-        `Error processing "${file.name}": ${errorMessage}`,
-        "error"
-      );
-    }
-
-  }
-
   async handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     if (!e.target.files?.length) return;
 
@@ -593,6 +543,13 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
     );
 
     for (const file of files) {
+      if (this.isDuplicateFile(file, this.state.files)) {
+        this.showNotification(
+          `File "${file.name}" is already attached`,
+          "warning"
+        );
+        continue;
+      }
       const processedFile = await this.processFile(file);
       if (processedFile) {
         this.setState(prevState => ({
@@ -634,6 +591,13 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
   private handleClipboardSelection = (selectedItems: ClipboardItem[]) => {
     selectedItems.forEach(async item => {
       if (item.type.startsWith('image/') && item.as_file) {
+        if (this.isDuplicateFile(item.as_file, this.state.files)) {
+          this.showNotification(
+            `File "${item.as_file.name}" is already attached`,
+            "warning"
+          );
+          return;
+        }
         const processedFile = await this.processFile(item.as_file);
         if (processedFile) {
           this.setState(prevState => ({
@@ -734,13 +698,6 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
     this.focusTextField();
   }
 
-  removeImage(index: number) {
-    this.setState({
-      images: this.state.images.filter((_, i) => i !== index),
-    });
-    this.focusTextField();
-  }
-
   removeFile(index: number) {
     this.setState(prevState => {
       const newFiles = [...prevState.files];
@@ -787,21 +744,45 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
 
       case 'markdown':
         return (
-          <Box sx={{ p: 1, display: 'flex', alignItems: 'center' }}>
-            <Description sx={{ color: theme?.textColor }} />
-            <Typography sx={{ ml: 1, color: theme?.textColor }}>
-              {file.file.name}
-            </Typography>
-          </Box>
-        );
-
-      case 'audio':
-        return (
-          <Box sx={{ p: 1, display: 'flex', alignItems: 'center' }}>
-            <AudioFile sx={{ color: theme?.textColor }} />
-            <Typography sx={{ ml: 1, color: theme?.textColor }}>
-              {file.file.name}
-            </Typography>
+          <Box 
+            sx={{ 
+              p: 1, 
+              display: 'flex', 
+              flexDirection: 'column',
+              minWidth: '200px',
+              maxWidth: '300px'
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+              <Description sx={{ color: theme?.textColor }} />
+              <Typography 
+                sx={{ 
+                  ml: 1, 
+                  color: theme?.textColor,
+                  fontWeight: 'medium'
+                }}
+              >
+                {file.file.name}
+              </Typography>
+            </Box>
+            {file.preview && (
+              <Typography
+                sx={{
+                  color: theme?.textColor,
+                  fontSize: '0.75rem',
+                  opacity: 0.8,
+                  fontFamily: 'monospace',
+                  whiteSpace: 'pre-wrap',
+                  overflow: 'hidden',
+                  maxHeight: '60px',
+                  backgroundColor: `${theme?.secondaryBackgroundColor}66`,
+                  p: 0.5,
+                  borderRadius: 1,
+                }}
+              >
+                {file.preview}
+              </Typography>
+            )}
           </Box>
         );
 
@@ -900,7 +881,7 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
             <input
               type="file"
               multiple
-              accept="image/*,.pdf,text/markdown,.md,audio/*"
+              accept={getAcceptedFileString()}
               hidden
               ref={this.fileInputRef}
               onChange={this.handleFileUpload}

@@ -4,7 +4,6 @@ import { SupportedFile } from './Types';
 export interface State {
     uuid: string;
     text: string;
-    images: File[]; // Keep this for backward compatibility
     files: SupportedFile[];
     isFocused: boolean;
     disabled: boolean;
@@ -20,4 +19,4 @@ export interface State {
         data: ClipboardInspectorData[];
         loading: boolean;
     };
-  }
+}

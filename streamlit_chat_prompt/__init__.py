@@ -10,7 +10,7 @@ from pydantic import BaseModel
 # the component, and True when we're ready to package and distribute it.
 # (This is, of course, optional - there are innumerable ways to manage your
 # release process.)
-_RELEASE = False
+_RELEASE = True
 
 logger = logging.getLogger("streamlit_chat_prompt")
 logger.setLevel(logging.WARN)

@@ -1,4 +1,5 @@
 import base64
+import uuid
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Dict, List, Optional
@@ -203,15 +204,33 @@ for chat_message in st.session_state.messages:
                         image = Image.open(BytesIO(base64.b64decode(file_data.data)))
                         st.image(image)
                     elif file_data.type == "application/pdf":
-                        # Handle PDFs
                         st.markdown("PDF File:")
                         st.markdown(f"Filename: {file_data.name}")
                         pdf_bytes = BytesIO(base64.b64decode(file_data.data))
                         st.download_button(
-                            label="Download PDF",
+                            label=f"Download {file_data.name}",
                             data=pdf_bytes,
                             file_name=file_data.name,
                             mime=file_data.type,
+                            key=f"download_{file_data.type}_{uuid.uuid4()}",
+                        )
+                    elif file_data.type == "text/markdown":
+                        st.markdown("Markdown File:")
+                        st.markdown(f"Filename: {file_data.name}")
+                        md_bytes = BytesIO(base64.b64decode(file_data.data))
+
+                        # preview markdown content
+                        with st.expander("Preview"):
+                            md_content = md_bytes.getvalue().decode('utf-8')
+                            st.markdown(md_content)
+
+                        md_bytes.seek(0)  # Reset buffer position for download
+                        st.download_button(
+                            label=f"Download {file_data.name}",
+                            data=md_bytes,
+                            file_name=file_data.name,
+                            mime=file_data.type,
+                            key=f"download_{file_data.type}_{uuid.uuid4()}",
                         )
         else:
             st.markdown(chat_message.content)
