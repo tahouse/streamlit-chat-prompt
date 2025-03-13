@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Literal
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -10,10 +10,10 @@ from pydantic import BaseModel
 # the component, and True when we're ready to package and distribute it.
 # (This is, of course, optional - there are innumerable ways to manage your
 # release process.)
-_RELEASE = True
+_RELEASE = False
 
 logger = logging.getLogger("streamlit_chat_prompt")
-logger.setLevel(logging.WARN)  # change log level
+logger.setLevel(logging.WARN)
 handler = logging.StreamHandler()
 handler.setFormatter(
     logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -54,28 +54,44 @@ else:
     )
 
 
-class ImageData(BaseModel):
-    type: str
-    format: str
-    data: str
-    name: Optional[str] = None
-
-
 class FileData(BaseModel):
     type: str
     format: str
     data: str
     name: Optional[str] = None
+    size: Optional[int] = None
+    file_type: Literal['image', 'pdf', 'markdown', 'audio'] = None  # For internal type tracking
+
+    @property
+    def is_image(self) -> bool:
+        return self.type.startswith('image/')
+
+    @property
+    def is_document(self) -> bool:
+        return not self.is_image
 
 
 class PromptReturn(BaseModel):
     text: Optional[str] = None
-    images: Optional[List[ImageData]] = None
     files: Optional[List[FileData]] = None
     uuid: Optional[str] = None
 
+    @property
+    def images(self) -> List[FileData]:
+        """Maintain backward compatibility for images access"""
+        if not self.files:
+            return []
+        return [f for f in self.files if f.is_image]
 
-__all__ = ["prompt", "PromptReturn", "ImageData", "FileData"]
+    @property
+    def documents(self) -> List[FileData]:
+        """Helper to get non-image files"""
+        if not self.files:
+            return []
+        return [f for f in self.files if f.is_document]
+
+
+__all__ = ["prompt", "PromptReturn", "FileData"]
 
 _prompt_main_singleton_key: Optional[str] = None
 
@@ -260,7 +276,7 @@ def prompt(
 
                     # If it's an image, also add to images list
                     if file_type.startswith('image/'):
-                        processed_images.append(ImageData(
+                        processed_images.append(FileData(
                             type=file_type,
                             format=file_format,
                             data=file_data_content,
@@ -273,7 +289,7 @@ def prompt(
 
                     # If it's an image, also add to images list
                     if file.type.startswith('image/'):
-                        processed_images.append(ImageData(
+                        processed_images.append(FileData(
                             type=file.type,
                             format=file.format,
                             data=file.data,

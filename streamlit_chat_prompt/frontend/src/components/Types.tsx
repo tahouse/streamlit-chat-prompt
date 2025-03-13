@@ -2,6 +2,7 @@ export interface SupportedFile {
   file: File;
   type: 'image' | 'pdf' | 'markdown' | 'audio';
   preview?: string;
+  size: number;
 }
 
 export const SUPPORTED_FILE_TYPES = {

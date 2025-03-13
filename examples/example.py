@@ -12,7 +12,9 @@ st.title("streamlit-chat-prompt with Bedrock API Integration")
 
 
 # Add Bedrock validation functions
-def validate_bedrock_limits(files: List[FileData], text: Optional[str] = None) -> Dict[str, bool]:
+def validate_bedrock_limits(
+    files: List[FileData], text: Optional[str] = None
+) -> Dict[str, bool]:
     """Validate files against Bedrock limits and return validation results."""
     results = {"valid": True, "messages": []}
 
@@ -23,11 +25,15 @@ def validate_bedrock_limits(files: List[FileData], text: Optional[str] = None) -
     # Check counts
     if len(documents) > 5:
         results["valid"] = False
-        results["messages"].append(f"Exceeded Bedrock limit of 5 documents (found {len(documents)})")
+        results["messages"].append(
+            f"Exceeded Bedrock limit of 5 documents (found {len(documents)})"
+        )
 
     if len(images) > 20:
         results["valid"] = False
-        results["messages"].append(f"Exceeded Bedrock limit of 20 images (found {len(images)})")
+        results["messages"].append(
+            f"Exceeded Bedrock limit of 20 images (found {len(images)})"
+        )
 
     # Check sizes
     for doc in documents:
@@ -36,14 +42,18 @@ def validate_bedrock_limits(files: List[FileData], text: Optional[str] = None) -
         size_mb = size_bytes / (1024 * 1024)
         if size_bytes > 4.5 * 1024 * 1024:  # 4.5MB
             results["valid"] = False
-            results["messages"].append(f"Document {doc.name} size ({size_mb:.2f}MB) exceeds Bedrock limit of 4.5MB")
+            results["messages"].append(
+                f"Document {doc.name} size ({size_mb:.2f}MB) exceeds Bedrock limit of 4.5MB"
+            )
 
     for img in images:
         size_bytes = len(img.data) * 3 / 4
         size_mb = size_bytes / (1024 * 1024)
         if size_bytes > 3.75 * 1024 * 1024:  # 3.75MB
             results["valid"] = False
-            results["messages"].append(f"Image {getattr(img, 'name', 'unknown')} size ({size_mb:.2f}MB) exceeds Bedrock limit of 3.75MB")
+            results["messages"].append(
+                f"Image {getattr(img, 'name', 'unknown')} size ({size_mb:.2f}MB) exceeds Bedrock limit of 3.75MB"
+            )
 
     # If no text is provided but documents are attached, validation fails
     if documents and not text:
@@ -63,43 +73,56 @@ def format_for_bedrock_converse(prompt_return: PromptReturn) -> Dict:
         content_blocks.append({"text": prompt_return.text})
 
     # Add document blocks (non-image files)
-    documents = [f for f in prompt_return.files if not f.type.startswith("image/")] if prompt_return.files else []
+    documents = (
+        [f for f in prompt_return.files if not f.type.startswith("image/")]
+        if prompt_return.files
+        else []
+    )
     for doc in documents:
         format_name = "pdf"
-        if doc.type == "text/markdown" or (hasattr(doc, 'name') and doc.name and doc.name.endswith(".md")):
+        if doc.type == "text/markdown" or (
+            hasattr(doc, "name") and doc.name and doc.name.endswith(".md")
+        ):
             format_name = "md"
-        elif doc.type == "text/csv" or (hasattr(doc, 'name') and doc.name and doc.name.endswith(".csv")):
+        elif doc.type == "text/csv" or (
+            hasattr(doc, "name") and doc.name and doc.name.endswith(".csv")
+        ):
             format_name = "csv"
         # Add more mappings as needed
 
-        content_blocks.append({
-            "document": {
-                "format": format_name,
-                "name": getattr(doc, 'name', f"document.{format_name}"),
-                "source": {
-                    "bytes": doc.data  # In real API usage, this would be binary not base64
+        content_blocks.append(
+            {
+                "document": {
+                    "format": format_name,
+                    "name": getattr(doc, "name", f"document.{format_name}"),
+                    "source": {
+                        "bytes": doc.data  # In real API usage, this would be binary not base64
+                    },
                 }
             }
-        })
+        )
 
     # Add image blocks
-    images = [f for f in prompt_return.files if f.type.startswith("image/")] if prompt_return.files else []
+    images = (
+        [f for f in prompt_return.files if f.type.startswith("image/")]
+        if prompt_return.files
+        else []
+    )
     for img in images:
         format_name = img.type.split("/")[1]
-        content_blocks.append({
-            "image": {
-                "format": format_name,
-                "source": {
-                    "bytes": img.data  # In real API usage, this would be binary not base64
+        content_blocks.append(
+            {
+                "image": {
+                    "format": format_name,
+                    "source": {
+                        "bytes": img.data  # In real API usage, this would be binary not base64
+                    },
                 }
             }
-        })
+        )
 
     # Create the message object
-    message = {
-        "role": "user",
-        "content": content_blocks
-    }
+    message = {"role": "user", "content": content_blocks}
 
     return message
 
@@ -133,11 +156,11 @@ def dialog(default_input: str | PromptReturn | None = None, key="default_dialog_
 with st.sidebar:
     st.header("Sidebar")
 
-    if st.button("Dialog Prompt", key=f"dialog_prompt_button"):
+    if st.button("Dialog Prompt", key="dialog_prompt_button"):
         dialog()
 
     if st.button(
-        "Dialog Prompt with Default Value", key=f"dialog_prompt_with_default_button"
+        "Dialog Prompt with Default Value", key="dialog_prompt_with_default_button"
     ):
         # Read PDF file
         example_filename = "pdf-without-images.pdf"
@@ -215,7 +238,9 @@ if prompt_return:
 
     if validation_result["valid"]:
         # Only add to conversation if valid
-        st.session_state.messages.append(ChatMessage(role="user", content=prompt_return))
+        st.session_state.messages.append(
+            ChatMessage(role="user", content=prompt_return)
+        )
 
         # Convert to Bedrock format (just for demonstration)
         bedrock_format = format_for_bedrock_converse(prompt_return)
@@ -237,7 +262,10 @@ if prompt_return:
             st.error(message)
 
 # Display validation status if available
-if st.session_state.last_validation_result and not st.session_state.last_validation_result["valid"]:
+if (
+    st.session_state.last_validation_result
+    and not st.session_state.last_validation_result["valid"]
+):
     with st.sidebar:
         st.error("Last submission had validation errors:")
         for msg in st.session_state.last_validation_result["messages"]:

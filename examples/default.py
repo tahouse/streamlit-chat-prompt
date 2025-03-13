@@ -7,7 +7,7 @@ from typing import List
 import streamlit as st
 from PIL import Image
 
-from streamlit_chat_prompt import ImageData, FileData, PromptReturn, prompt
+from streamlit_chat_prompt import PromptReturn, prompt
 
 st.title("streamlit-chat-prompt")
 
