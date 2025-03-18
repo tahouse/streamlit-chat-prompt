@@ -11,6 +11,8 @@ from streamlit_chat_prompt import FileData, PromptReturn, prompt
 
 st.title("streamlit-chat-prompt with Bedrock API Integration")
 
+# this code should be in downstream application code/RockTalk, rather than in the component
+
 
 # Add Bedrock validation functions
 def validate_bedrock_limits(
@@ -221,7 +223,7 @@ for chat_message in st.session_state.messages:
 
                         # preview markdown content
                         with st.expander("Preview"):
-                            md_content = md_bytes.getvalue().decode('utf-8')
+                            md_content = md_bytes.getvalue().decode("utf-8")
                             st.markdown(md_content)
 
                         md_bytes.seek(0)  # Reset buffer position for download

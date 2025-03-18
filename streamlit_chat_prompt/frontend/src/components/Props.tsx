@@ -5,6 +5,7 @@ export interface Props {
     };
     // force_apply_default?: boolean
     max_image_size?: number;
+    max_image_dimension?: number;
     placeholder?: string;
     disabled?: boolean;
     key?: string;
