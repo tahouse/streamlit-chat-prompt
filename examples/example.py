@@ -2,132 +2,18 @@ import base64
 import uuid
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Dict, List, Optional
+from typing import List
 
 import streamlit as st
 from PIL import Image
 
-from streamlit_chat_prompt import FileData, PromptReturn, prompt
+from streamlit_chat_prompt import (
+    DEFAULT_DOCUMENT_COUNT, DEFAULT_DOCUMENT_FILE_SIZE,
+    DEFAULT_IMAGE_COUNT, DEFAULT_IMAGE_FILE_SIZE, DEFAULT_IMAGE_PIXEL_DIMENSION,
+    FileData, PromptReturn, prompt
+)
 
-st.title("streamlit-chat-prompt with Bedrock API Integration")
-
-# this code should be in downstream application code/RockTalk, rather than in the component
-
-
-# Add Bedrock validation functions
-def validate_bedrock_limits(
-    files: List[FileData], text: Optional[str] = None
-) -> Dict[str, bool]:
-    """Validate files against Bedrock limits and return validation results."""
-    results = {"valid": True, "messages": []}
-
-    # Count documents and images
-    documents = [f for f in files if not f.type.startswith("image/")]
-    images = [f for f in files if f.type.startswith("image/")]
-
-    # Check counts
-    if len(documents) > 5:
-        results["valid"] = False
-        results["messages"].append(
-            f"Exceeded Bedrock limit of 5 documents (found {len(documents)})"
-        )
-
-    if len(images) > 20:
-        results["valid"] = False
-        results["messages"].append(
-            f"Exceeded Bedrock limit of 20 images (found {len(images)})"
-        )
-
-    # Check sizes
-    for doc in documents:
-        # Calculate approximate base64 decoded size
-        size_bytes = len(doc.data) * 3 / 4  # Approximation of base64 to binary size
-        size_mb = size_bytes / (1024 * 1024)
-        if size_bytes > 4.5 * 1024 * 1024:  # 4.5MB
-            results["valid"] = False
-            results["messages"].append(
-                f"Document {doc.name} size ({size_mb:.2f}MB) exceeds Bedrock limit of 4.5MB"
-            )
-
-    for img in images:
-        size_bytes = len(img.data) * 3 / 4
-        size_mb = size_bytes / (1024 * 1024)
-        if size_bytes > 3.75 * 1024 * 1024:  # 3.75MB
-            results["valid"] = False
-            results["messages"].append(
-                f"Image {getattr(img, 'name', 'unknown')} size ({size_mb:.2f}MB) exceeds Bedrock limit of 3.75MB"
-            )
-
-    # If no text is provided but documents are attached, validation fails
-    if documents and not text:
-        results["valid"] = False
-        results["messages"].append("A text prompt is required when attaching documents")
-
-    return results
-
-
-def format_for_bedrock_converse(prompt_return: PromptReturn) -> Dict:
-    """Format PromptReturn into Bedrock Converse API format."""
-    # Build content blocks
-    content_blocks = []
-
-    # Text must come first
-    if prompt_return.text:
-        content_blocks.append({"text": prompt_return.text})
-
-    # Add document blocks (non-image files)
-    documents = (
-        [f for f in prompt_return.files if not f.type.startswith("image/")]
-        if prompt_return.files
-        else []
-    )
-    for doc in documents:
-        format_name = "pdf"
-        if doc.type == "text/markdown" or (
-            hasattr(doc, "name") and doc.name and doc.name.endswith(".md")
-        ):
-            format_name = "md"
-        elif doc.type == "text/csv" or (
-            hasattr(doc, "name") and doc.name and doc.name.endswith(".csv")
-        ):
-            format_name = "csv"
-        # Add more mappings as needed
-
-        content_blocks.append(
-            {
-                "document": {
-                    "format": format_name,
-                    "name": getattr(doc, "name", f"document.{format_name}"),
-                    "source": {
-                        "bytes": doc.data  # In real API usage, this would be binary not base64
-                    },
-                }
-            }
-        )
-
-    # Add image blocks
-    images = (
-        [f for f in prompt_return.files if f.type.startswith("image/")]
-        if prompt_return.files
-        else []
-    )
-    for img in images:
-        format_name = img.type.split("/")[1]
-        content_blocks.append(
-            {
-                "image": {
-                    "format": format_name,
-                    "source": {
-                        "bytes": img.data  # In real API usage, this would be binary not base64
-                    },
-                }
-            }
-        )
-
-    # Create the message object
-    message = {"role": "user", "content": content_blocks}
-
-    return message
+st.title("streamlit-chat-prompt")
 
 
 @dataclass
@@ -184,6 +70,55 @@ with st.sidebar:
                 ),
                 key="dialog_with_default",
             )
+
+    # Controls for file limits in an expandable section
+    with st.expander("File Upload Limits", expanded=False):
+        # Image limits - use the default values from the package
+        st.markdown("#### Image Limits")
+        max_image_file_size_mb = st.slider(
+            "Max Image Size (MB)",
+            1, 50,
+            int(DEFAULT_IMAGE_FILE_SIZE / (1024 * 1024)),
+            1
+        )
+        max_image_dimension = st.slider(
+            "Max Image Dimension (pixels)",
+            1000, 10000,
+            DEFAULT_IMAGE_PIXEL_DIMENSION,
+            500
+        )
+        max_image_count = st.slider(
+            "Max Number of Images",
+            1, 30,
+            DEFAULT_IMAGE_COUNT
+        )
+
+        # Document limits - use the default values from the package
+        st.markdown("#### Document Limits")
+        max_document_file_size_mb = st.slider(
+            "Max Document Size (MB)",
+            1.0, 10.0,
+            DEFAULT_DOCUMENT_FILE_SIZE / (1024 * 1024),
+            0.5
+        )
+        max_document_count = st.slider(
+            "Max Number of Documents",
+            1, 10,
+            DEFAULT_DOCUMENT_COUNT
+        )
+
+        # Convert MB to bytes for the component
+        max_image_file_size = max_image_file_size_mb * 1024 * 1024
+        max_document_file_size = max_document_file_size_mb * 1024 * 1024
+
+    # Use the package defaults when expander has not been opened
+    if 'max_image_file_size_mb' not in locals():
+        max_image_file_size = DEFAULT_IMAGE_FILE_SIZE
+        max_image_dimension = DEFAULT_IMAGE_PIXEL_DIMENSION
+        max_image_count = DEFAULT_IMAGE_COUNT
+        max_document_file_size = DEFAULT_DOCUMENT_FILE_SIZE
+        max_document_count = DEFAULT_DOCUMENT_COUNT
+
 
 for chat_message in st.session_state.messages:
     chat_message: ChatMessage
@@ -248,46 +183,16 @@ prompt_return: PromptReturn | None = prompt(
     main_bottom=True,
     log_level="debug",
     enable_clipboard_inspector=True,
+    max_image_file_size=max_image_file_size,
+    max_image_pixel_dimension=max_image_dimension,
+    max_image_count=max_image_count,
+    max_document_file_size=max_document_file_size,
+    max_document_count=max_document_count,
 )
 
 if prompt_return:
-    # Validate against Bedrock limits
-    validation_result = validate_bedrock_limits(
-        prompt_return.files or [], prompt_return.text
+    st.session_state.messages.append(ChatMessage(role="user", content=prompt_return))
+    st.session_state.messages.append(
+        ChatMessage(role="assistant", content=f"Echo:\n\n{prompt_return.text}")
     )
-    st.session_state.last_validation_result = validation_result
-
-    if validation_result["valid"]:
-        # Only add to conversation if valid
-        st.session_state.messages.append(
-            ChatMessage(role="user", content=prompt_return)
-        )
-
-        # Convert to Bedrock format (just for demonstration)
-        bedrock_format = format_for_bedrock_converse(prompt_return)
-
-        # In a real application, you'd send this to the Bedrock API
-        # For this demo, we'll just echo back the text
-        st.session_state.messages.append(
-            ChatMessage(role="assistant", content=f"Echo:\n\n{prompt_return.text}")
-        )
-
-        # Optional: Show the Bedrock API format that would have been sent
-        with st.expander("Bedrock API Format (Demo)"):
-            st.json(bedrock_format)
-
-        st.rerun()
-    else:
-        # Show validation errors
-        for message in validation_result["messages"]:
-            st.error(message)
-
-# Display validation status if available
-if (
-    st.session_state.last_validation_result
-    and not st.session_state.last_validation_result["valid"]
-):
-    with st.sidebar:
-        st.error("Last submission had validation errors:")
-        for msg in st.session_state.last_validation_result["messages"]:
-            st.write(f"- {msg}")
+    st.rerun()

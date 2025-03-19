@@ -10,7 +10,7 @@ from pydantic import BaseModel
 # the component, and True when we're ready to package and distribute it.
 # (This is, of course, optional - there are innumerable ways to manage your
 # release process.)
-_RELEASE = False
+_RELEASE = True
 
 logger = logging.getLogger("streamlit_chat_prompt")
 logger.setLevel(logging.WARN)
@@ -20,6 +20,12 @@ handler.setFormatter(
 )
 logger.addHandler(handler)
 
+# set default limits for file uploads
+DEFAULT_IMAGE_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+DEFAULT_IMAGE_PIXEL_DIMENSION = 8000
+DEFAULT_IMAGE_COUNT = 20
+DEFAULT_DOCUMENT_FILE_SIZE = 4.5 * 1024 * 1024  # 4.5MB
+DEFAULT_DOCUMENT_COUNT = 5
 
 # Declare a Streamlit component. `declare_component` returns a function
 # that is used to create instances of the component. We're naming this
@@ -91,7 +97,9 @@ class PromptReturn(BaseModel):
         return [f for f in self.files if f.is_document]
 
 
-__all__ = ["prompt", "PromptReturn", "FileData"]
+__all__ = ["prompt", "PromptReturn", "FileData",
+           "DEFAULT_IMAGE_FILE_SIZE", "DEFAULT_IMAGE_PIXEL_DIMENSION", "DEFAULT_IMAGE_COUNT",
+           "DEFAULT_DOCUMENT_FILE_SIZE", "DEFAULT_DOCUMENT_COUNT"]
 
 _prompt_main_singleton_key: Optional[str] = None
 
@@ -147,7 +155,11 @@ def prompt(
     placeholder="Hi there! What should we talk about?",
     default: Optional[Union[str, PromptReturn]] = None,
     main_bottom: bool = True,
-    max_image_size: int = 5 * 1024 * 1024,  # 5MB
+    max_image_file_size: int = DEFAULT_IMAGE_FILE_SIZE,
+    max_image_pixel_dimension: int = DEFAULT_IMAGE_PIXEL_DIMENSION,
+    max_image_count: int = DEFAULT_IMAGE_COUNT,
+    max_document_file_size: int = DEFAULT_DOCUMENT_FILE_SIZE,
+    max_document_count: int = DEFAULT_DOCUMENT_COUNT,
     disabled: bool = False,
     log_level: str = "warn",
     enable_clipboard_inspector: bool = False,
@@ -161,17 +173,23 @@ def prompt(
         default (Union[str, PromptReturn], optional): Default value for the prompt.
             Can be either a string (text only) or PromptReturn object (text and images). Defaults to None.
         main_bottom (bool, optional): Whether to position at bottom of main area. Defaults to True.
-        max_image_size (int, optional): Maximum size of uploaded images in bytes. Defaults to 5MB.
+        max_image_file_size (int, optional): Maximum size of uploaded images in bytes. Defaults to 5MB.
+        max_image_pixel_dimension (int, optional): Maximum pixel dimension of uploaded images. Defaults to 8000.
+        max_image_count (int, optional): Maximum number of images allowed. Defaults to 20.
+        max_document_file_size (int, optional): Maximum size of uploaded documents in bytes. Defaults to 4.5MB.
+        max_document_count (int, optional): Maximum number of documents allowed. Defaults to 5.
         disabled (bool, optional): Whether the prompt input is disabled. Defaults to False.
         log_level (str, optional): Logging level for the component. Defaults to "warn".
         enable_clipboard_inspector (bool, optional): Whether to enable clipboard inspector. Defaults to False.
 
     Returns:
         Optional[PromptReturn]: Returns a PromptReturn object containing the text
-        and images entered by the user when submitted, or None if nothing submitted yet.
-        The PromptReturn object has two optional fields:
+        and files entered by the user when submitted, or None if nothing submitted yet.
+        The PromptReturn object has these fields:
             - text (Optional[str]): The text entered by the user
-            - images (Optional[List[ImageData]]): List of images uploaded by the user
+            - files (Optional[List[FileData]]): List of all files uploaded by the user
+            - images (Optional[List[FileData]]): List of images only (convenience property)
+            - documents (Optional[List[FileData]]): List of non-image files (convenience property)
     """
     logger.debug(
         f"Creating prompt: name={name}, key={key}, placeholder={placeholder}, default={default}, main_bottom={main_bottom}"
@@ -228,6 +246,17 @@ def prompt(
 
         pin_bottom(key)
 
+    image_file_upload_limits = {
+        "max_size_in_bytes": max_image_file_size,
+        "max_count": max_image_count,
+        "max_dimension_in_pixels": max_image_pixel_dimension,
+    }
+
+    document_file_upload_limits = {
+        "max_size_in_bytes": max_document_file_size,
+        "max_count": max_document_count,
+    }
+
     # Call through to our private component function. Arguments we pass here
     # will be sent to the frontend, where they'll be available in an "args"
     # dictionary.
@@ -240,7 +269,8 @@ def prompt(
         default=default_value,
         key=key,
         disabled=disabled,
-        max_image_size=max_image_size,
+        image_file_upload_limits=image_file_upload_limits,
+        document_file_upload_limits=document_file_upload_limits,
         debug=log_level,
         clipboard_inspector_enabled=enable_clipboard_inspector,
     )
@@ -303,7 +333,7 @@ def prompt(
         return PromptReturn(
             text=component_value.get("text"),
             files=processed_files,
-            images=processed_images if processed_images else None
+            uuid=component_value.get("uuid")
         )
     else:
         return None

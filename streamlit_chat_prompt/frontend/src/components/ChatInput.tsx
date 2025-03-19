@@ -27,22 +27,12 @@ import { SUPPORTED_FILE_TYPES, SupportedFile, getAcceptedFileString } from './Ty
 export class ChatInput extends StreamlitComponentBase<State, Props> {
   private fileInputRef: React.RefObject<HTMLInputElement>;
   private textFieldRef: React.RefObject<HTMLInputElement>;
-  private maxImageFileSize: number;
-  private maxImagePixelDimension: number;
   private isShowingDialog: boolean = false;
-
-  // set limits based on Bedrock Converse API
-  // https://docs.aws.amazon.com/bedrock/latest/userguide/conversation-inference-call.html
-  private readonly FILE_LIMITS = {
-    IMAGE: {
-      maxSize: 3.75 * 1024 * 1024,  // 3.75MB
-      maxCount: 20
-    },
-    DOCUMENT: {
-      maxSize: 4.5 * 1024 * 1024,   // 4.5MB
-      maxCount: 5
-    }
-  };  
+  private maxImageFileSizeInBytes: number = 5 * 1024 * 1024; // Default 5MB
+  private maxImageFileDimensionInPixels: number = 8000;
+  private maxImageFileCount: number = 20;
+  private maxDocumentFileSizeInBytes: number = 4.5 * 1024 * 1024; // Default 4.5MB
+  private maxDocumentFileCount: number = 5;
 
   constructor(props: Props) {
     super(props as any);
@@ -60,8 +50,9 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
       },
     });
     Logger.info("component", "Logger configuration:", Logger.getConfiguration());
-    this.maxImageFileSize = this.props.args?.max_image_size || 1024 * 1024 * 5;
-    this.maxImagePixelDimension = this.props.args?.max_image_dimension || 8000;
+
+    // Initialize file upload limits from props
+    this.updateFileUploadLimitsFromProps();
 
     const defaultValue = PromptData.fromProps(props);
     this.state = {
@@ -99,6 +90,7 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
     this.handleTextChange = this.handleTextChange.bind(this);
     this.handlePasteEvent = this.handlePasteEvent.bind(this);
   }
+
   private async handlePasteEvent(e: ClipboardEvent) {
     if (this.state.disabled || this.state.clipboardInspector.open) return;
 
@@ -182,6 +174,18 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
           navigator.userAgent.match(/Windows Phone/i))) !== null
     );
   }
+
+  private updateFileUploadLimitsFromProps() {
+    // Update limits for images
+    this.maxImageFileSizeInBytes = this.props.args?.image_file_upload_limits?.max_size_in_bytes ?? this.maxImageFileSizeInBytes;
+    this.maxImageFileDimensionInPixels = this.props.args?.image_file_upload_limits?.max_dimension_in_pixels ?? this.maxImageFileDimensionInPixels;
+    this.maxImageFileCount = this.props.args?.image_file_upload_limits?.max_count ?? this.maxImageFileCount;
+
+    // Update limits for documents
+    this.maxDocumentFileSizeInBytes = this.props.args?.document_file_upload_limits?.max_size_in_bytes ?? this.maxDocumentFileSizeInBytes;
+    this.maxDocumentFileCount = this.props.args?.document_file_upload_limits?.max_count ?? this.maxDocumentFileCount;
+  }
+
   private isDuplicateFile(newFile: File, existingFiles: SupportedFile[]): boolean {
     return existingFiles.some(existing =>
       existing.file.name === newFile.name &&
@@ -200,21 +204,36 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
       const isMarkdown = SUPPORTED_FILE_TYPES.MARKDOWN.includes(file.type) ||
         file.name.toLowerCase().endsWith('.md');
 
-      // Determine file type and limits
-      const limits = isImage ? this.FILE_LIMITS.IMAGE : this.FILE_LIMITS.DOCUMENT;
+      // Check file counts
+      const currentImageCount = this.state.files.filter(f => f.type === 'image').length;
+      const currentDocumentCount = this.state.files.filter(f => f.type === 'pdf' || f.type === 'markdown').length;
 
-      // Check file size
-      if (file.size > limits.maxSize && !isImage) {
-        const sizeInMb = (limits.maxSize / (1024 * 1024)).toFixed(1);
+      if (isImage && currentImageCount >= this.maxImageFileCount) {
         this.showNotification(
-          `File "${file.name}" exceeds ${isImage ? 'image' : 'document'} size limit of ${sizeInMb}MB`,
+          `Maximum of ${this.maxImageFileCount} images allowed`,
+          "error"
+        );
+        return null;
+      } else if (!isImage && currentDocumentCount >= this.maxDocumentFileCount) {
+        this.showNotification(
+          `Maximum of ${this.maxDocumentFileCount} documents allowed`,
+          "error"
+        );
+        return null;
+      }
+
+      // Check file size for documents
+      if (!isImage && file.size > this.maxDocumentFileSizeInBytes) {
+        const sizeInMb = (this.maxDocumentFileSizeInBytes / (1024 * 1024)).toFixed(1);
+        this.showNotification(
+          `File "${file.name}" exceeds document size limit of ${sizeInMb}MB`,
           "error"
         );
         return null;
       }
       // Process based on file type
       if (isImage) {
-        const processedImage = await processImage(file, this.maxImageFileSize, this.maxImagePixelDimension);
+        const processedImage = await processImage(file, this.maxImageFileSizeInBytes, this.maxImageFileDimensionInPixels);
         if (processedImage) {
           return {
             file: processedImage,
@@ -278,7 +297,7 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
           const file = new File([blob], fileName, { type: fileData.type });
 
           if (fileData.type.startsWith('image/')) {
-            const processedImage = await processImage(file, this.maxImageFileSize);
+            const processedImage = await processImage(file, this.maxImageFileSizeInBytes);
             if (processedImage) {
               processedFiles.push({
                 file: processedImage,
@@ -414,6 +433,9 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
     if (!this.isShowingDialog && (this.state.files.length > 0 || this.state.text)) {
       this.updateFrameHeight();
     }
+    // Update file upload limits when props change
+    this.updateFileUploadLimitsFromProps();
+
     // Get current default values
     const newDefault = PromptData.fromProps(this.props);
 
@@ -609,16 +631,6 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
     if (this.state.disabled) return;
     if (!this.state.text && this.state.files.length === 0) return;
 
-    // Validate files for Bedrock requirements
-    const hasDocs = this.state.files.some(f => f.type !== 'image');
-    if (hasDocs && !this.state.text.trim()) {
-      this.showNotification(
-        "A text prompt is required when attaching documents",
-        "warning"
-      );
-      return;
-    }
-
     const filePromises = this.state.files.map(async (file) => {
       return new Promise((resolve) => {
         const reader = new FileReader();
@@ -758,7 +770,6 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
   render() {
     const { theme } = this.props;
     const disabled = this.state.disabled || false;
-    this.maxImageFileSize = this.props.args?.max_image_size || 1024 * 1024 * 5;
     Logger.debug("events", 'Rendering ChatInput', {
       stateText: this.state.text,
       filesLength: this.state.files.length,
