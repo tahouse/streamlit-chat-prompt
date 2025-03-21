@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Literal
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -20,6 +20,12 @@ handler.setFormatter(
 )
 logger.addHandler(handler)
 
+# set default limits for file uploads
+DEFAULT_IMAGE_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+DEFAULT_IMAGE_PIXEL_DIMENSION = 8000
+DEFAULT_IMAGE_COUNT = 20
+DEFAULT_DOCUMENT_FILE_SIZE = 4.5 * 1024 * 1024  # 4.5MB
+DEFAULT_DOCUMENT_COUNT = 5
 
 # Declare a Streamlit component. `declare_component` returns a function
 # that is used to create instances of the component. We're naming this
@@ -54,16 +60,46 @@ else:
     )
 
 
-class ImageData(BaseModel):
+class FileData(BaseModel):
     type: str
     format: str
     data: str
+    name: Optional[str] = None
+    size: Optional[int] = None
+    file_type: Literal['image', 'pdf', 'markdown', 'audio'] = None  # For internal type tracking
+
+    @property
+    def is_image(self) -> bool:
+        return self.type.startswith('image/')
+
+    @property
+    def is_document(self) -> bool:
+        return not self.is_image
 
 
 class PromptReturn(BaseModel):
     text: Optional[str] = None
-    images: Optional[List[ImageData]] = None
+    files: Optional[List[FileData]] = None
+    uuid: Optional[str] = None
 
+    @property
+    def images(self) -> List[FileData]:
+        """Maintain backward compatibility for images access"""
+        if not self.files:
+            return []
+        return [f for f in self.files if f.is_image]
+
+    @property
+    def documents(self) -> List[FileData]:
+        """Helper to get non-image files"""
+        if not self.files:
+            return []
+        return [f for f in self.files if f.is_document]
+
+
+__all__ = ["prompt", "PromptReturn", "FileData",
+           "DEFAULT_IMAGE_FILE_SIZE", "DEFAULT_IMAGE_PIXEL_DIMENSION", "DEFAULT_IMAGE_COUNT",
+           "DEFAULT_DOCUMENT_FILE_SIZE", "DEFAULT_DOCUMENT_COUNT"]
 
 _prompt_main_singleton_key: Optional[str] = None
 
@@ -119,7 +155,11 @@ def prompt(
     placeholder="Hi there! What should we talk about?",
     default: Optional[Union[str, PromptReturn]] = None,
     main_bottom: bool = True,
-    max_image_size: int = 5 * 1024 * 1024,  # 5MB
+    max_image_file_size: int = DEFAULT_IMAGE_FILE_SIZE,
+    max_image_pixel_dimension: int = DEFAULT_IMAGE_PIXEL_DIMENSION,
+    max_image_count: int = DEFAULT_IMAGE_COUNT,
+    max_document_file_size: int = DEFAULT_DOCUMENT_FILE_SIZE,
+    max_document_count: int = DEFAULT_DOCUMENT_COUNT,
     disabled: bool = False,
     log_level: str = "warn",
     enable_clipboard_inspector: bool = False,
@@ -133,17 +173,23 @@ def prompt(
         default (Union[str, PromptReturn], optional): Default value for the prompt.
             Can be either a string (text only) or PromptReturn object (text and images). Defaults to None.
         main_bottom (bool, optional): Whether to position at bottom of main area. Defaults to True.
-        max_image_size (int, optional): Maximum size of uploaded images in bytes. Defaults to 5MB.
+        max_image_file_size (int, optional): Maximum size of uploaded images in bytes. Defaults to 5MB.
+        max_image_pixel_dimension (int, optional): Maximum pixel dimension of uploaded images. Defaults to 8000.
+        max_image_count (int, optional): Maximum number of images allowed. Defaults to 20.
+        max_document_file_size (int, optional): Maximum size of uploaded documents in bytes. Defaults to 4.5MB.
+        max_document_count (int, optional): Maximum number of documents allowed. Defaults to 5.
         disabled (bool, optional): Whether the prompt input is disabled. Defaults to False.
         log_level (str, optional): Logging level for the component. Defaults to "warn".
         enable_clipboard_inspector (bool, optional): Whether to enable clipboard inspector. Defaults to False.
 
     Returns:
         Optional[PromptReturn]: Returns a PromptReturn object containing the text
-        and images entered by the user when submitted, or None if nothing submitted yet.
-        The PromptReturn object has two optional fields:
+        and files entered by the user when submitted, or None if nothing submitted yet.
+        The PromptReturn object has these fields:
             - text (Optional[str]): The text entered by the user
-            - images (Optional[List[ImageData]]): List of images uploaded by the user
+            - files (Optional[List[FileData]]): List of all files uploaded by the user
+            - images (Optional[List[FileData]]): List of images only (convenience property)
+            - documents (Optional[List[FileData]]): List of non-image files (convenience property)
     """
     logger.debug(
         f"Creating prompt: name={name}, key={key}, placeholder={placeholder}, default={default}, main_bottom={main_bottom}"
@@ -158,14 +204,33 @@ def prompt(
     # Convert images to base64 strings if present in default
     default_value = None
     if default:
-        images = []
+        processed_files = []
+
+        # Handle legacy images
         if default.images:
-            images = [
-                f"data:{img.type};{img.format},{img.data}" for img in default.images
-            ]
+            for img in default.images:
+                processed_files.append(
+                    {
+                        "data": f"data:{img.type};{img.format},{img.data}",
+                        "type": img.type,
+                        "name": "image",
+                    }
+                )
+
+        # Handle new files
+        if default.files:
+            for file in default.files:
+                processed_files.append(
+                    {
+                        "data": f"data:{file.type};{file.format},{file.data}",
+                        "type": file.type,
+                        "name": getattr(file, "name", None) or "file",
+                    }
+                )
+
         default_value = {
             "text": default.text or "",
-            "images": images,
+            "files": processed_files,
             "uuid": None,  # No UUID for default value
         }
 
@@ -181,6 +246,17 @@ def prompt(
 
         pin_bottom(key)
 
+    image_file_upload_limits = {
+        "max_size_in_bytes": max_image_file_size,
+        "max_count": max_image_count,
+        "max_dimension_in_pixels": max_image_pixel_dimension,
+    }
+
+    document_file_upload_limits = {
+        "max_size_in_bytes": max_document_file_size,
+        "max_count": max_document_count,
+    }
+
     # Call through to our private component function. Arguments we pass here
     # will be sent to the frontend, where they'll be available in an "args"
     # dictionary.
@@ -193,7 +269,8 @@ def prompt(
         default=default_value,
         key=key,
         disabled=disabled,
-        max_image_size=max_image_size,
+        image_file_upload_limits=image_file_upload_limits,
+        document_file_upload_limits=document_file_upload_limits,
         debug=log_level,
         clipboard_inspector_enabled=enable_clipboard_inspector,
     )
@@ -206,24 +283,57 @@ def prompt(
     ):
         # we have a new prompt return
         st.session_state[f"chat_prompt_{key}_prev_uuid"] = component_value["uuid"]
-        images = []
-        # Process any images
-        if component_value.get("images"):
-            for image_str in component_value["images"]:
-                parts = image_str.split(";")
-                image_type = parts[0].split(":")[1]
-                image_format = parts[1].split(",")[0]
-                image_data = parts[1].split(",")[1]
-                images.append(
-                    ImageData(type=image_type, format=image_format, data=image_data)
-                )
+        processed_files = []
+        processed_images = []  # Separate list for images
 
-        if not images and not component_value.get("text"):
+        # Process any files
+        if component_value.get("files"):
+            for file_data in component_value["files"]:
+                if isinstance(file_data, str):  # If it's a data URL string
+                    parts = file_data.split(";")
+                    file_type = parts[0].split(":")[1]
+                    file_format = parts[1].split(",")[0]
+                    file_data_content = parts[1].split(",")[1]
+
+                    file = FileData(
+                        type=file_type,
+                        format=file_format,
+                        data=file_data_content,
+                        name=None
+                    )
+
+                    processed_files.append(file)
+
+                    # If it's an image, also add to images list
+                    if file_type.startswith('image/'):
+                        processed_images.append(FileData(
+                            type=file_type,
+                            format=file_format,
+                            data=file_data_content,
+                            name=None
+                        ))
+
+                else:  # If it's already a dictionary
+                    file = FileData(**file_data)
+                    processed_files.append(file)
+
+                    # If it's an image, also add to images list
+                    if file.type.startswith('image/'):
+                        processed_images.append(FileData(
+                            type=file.type,
+                            format=file.format,
+                            data=file.data,
+                            name=getattr(file, 'name', None)
+                        ))
+
+        if not processed_files and not component_value.get("text"):
             return None
 
+        # Create return object with both files and images
         return PromptReturn(
             text=component_value.get("text"),
-            images=images,
+            files=processed_files,
+            uuid=component_value.get("uuid")
         )
     else:
         return None

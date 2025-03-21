@@ -812,6 +812,8 @@ export const ClipboardInspector: React.FC<ClipboardInspectorProps> = ({
             }) || []
         );
 
+        Logger.debug('component', 'ClipboardInspector selected items:', selected);
+
         onSelect(selected);
         onClose();
 

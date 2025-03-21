@@ -1,9 +1,10 @@
 import { ClipboardInspectorData } from "./ClipboardInspector";
+import { SupportedFile } from './Types';
 
 export interface State {
     uuid: string;
     text: string;
-    images: File[];
+    files: SupportedFile[];
     isFocused: boolean;
     disabled: boolean;
     userHasInteracted: boolean;

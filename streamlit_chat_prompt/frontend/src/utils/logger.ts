@@ -1,5 +1,5 @@
 // logger.ts
-type LogCategory = "component" | "state" | "images" | "events"
+type LogCategory = "component" | "state" | "images" | "events" | "files"
 
 interface LogConfig {
   enabled: boolean
@@ -17,6 +17,7 @@ export class Logger {
       state: true,
       images: true,
       events: true,
+      files: true,
     },
     level: "none",
   }

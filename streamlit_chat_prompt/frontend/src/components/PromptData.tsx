@@ -1,10 +1,14 @@
 export class PromptData {
     text: string;
-    images: string[];
+    files: Array<{
+        url: string;
+        type: string;
+        name?: string;
+    }>;
 
-    constructor(text: string = "", images: string[] = []) {
+    constructor(text: string = "", files: Array<{url: string, type: string, name?: string}> = []) {
         this.text = text;
-        this.images = images;
+        this.files = files;
     }
 
     static fromProps(props: any): PromptData {
@@ -13,9 +17,15 @@ export class PromptData {
         }
 
         const defaultData = props.args.default;
+        const files = defaultData.files?.map((file: any) => ({
+            url: `data:${file.type};${file.format},${file.data}`,  // Construct proper data URL
+            type: file.type,
+            name: file.name || 'file'  // Use provided name or fallback
+        })) || [];
+
         return new PromptData(
             defaultData.text || "",
-            Array.isArray(defaultData.images) ? defaultData.images : []
+            files
         );
     }
 
@@ -24,10 +34,10 @@ export class PromptData {
     }
 
     isEmpty(): boolean {
-        return !this.text && this.images.length === 0;
+        return !this.text && this.files.length === 0;
     }
 
     clone(): PromptData {
-        return new PromptData(this.text, [...this.images]);
+        return new PromptData(this.text, [...this.files]);
     }
 }
