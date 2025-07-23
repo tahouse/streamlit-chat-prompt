@@ -66,7 +66,7 @@ class FileData(BaseModel):
     data: str
     name: Optional[str] = None
     size: Optional[int] = None
-    file_type: Literal['image', 'pdf', 'markdown', 'audio'] = None  # For internal type tracking
+    file_type: Literal['image', 'document'] = None  # todo: add 'media' type for audio/video
 
     @property
     def is_image(self) -> bool:
@@ -75,6 +75,24 @@ class FileData(BaseModel):
     @property
     def is_document(self) -> bool:
         return not self.is_image
+
+    @property
+    def is_previewable(self) -> bool:
+        """Returns whether the document can be previewed in the browser"""
+        if self.is_image:
+            return True
+
+        previewable_mime_types = [
+            'text/markdown',
+            'text/plain',
+            'text/html',
+            'text/csv',
+            'application/json'
+        ]
+
+        return self.type in previewable_mime_types or (
+            self.name and any(self.name.lower().endswith(ext) for ext in ['.md', '.txt', '.html', '.htm', '.csv', '.json'])
+        )
 
 
 class PromptReturn(BaseModel):
@@ -295,11 +313,15 @@ def prompt(
                     file_format = parts[1].split(",")[0]
                     file_data_content = parts[1].split(",")[1]
 
+                    # Determine file_type value - either 'image' or 'document'
+                    file_type_value = 'image' if file_type.startswith('image/') else 'document'
+
                     file = FileData(
                         type=file_type,
                         format=file_format,
                         data=file_data_content,
-                        name=None
+                        name=None,
+                        file_type=file_type_value
                     )
 
                     processed_files.append(file)
@@ -310,10 +332,22 @@ def prompt(
                             type=file_type,
                             format=file_format,
                             data=file_data_content,
-                            name=None
+                            name=None,
+                            file_type='image'
                         ))
 
                 else:  # If it's already a dictionary
+                    # Convert file_type to our simplified system if needed
+                    if 'file_type' in file_data:
+                        # Map any incoming file_type to either 'image' or 'document'
+                        if file_data['type'].startswith('image/') or file_data['file_type'] == 'image':
+                            file_data['file_type'] = 'image'
+                        else:
+                            file_data['file_type'] = 'document'
+                    else:
+                        # If no file_type is provided, determine it from the MIME type
+                        file_data['file_type'] = 'image' if file_data['type'].startswith('image/') else 'document'
+
                     file = FileData(**file_data)
                     processed_files.append(file)
 
@@ -323,7 +357,8 @@ def prompt(
                             type=file.type,
                             format=file.format,
                             data=file.data,
-                            name=getattr(file, 'name', None)
+                            name=getattr(file, 'name', None),
+                            file_type='image'
                         ))
 
         if not processed_files and not component_value.get("text"):

@@ -1,5 +1,6 @@
 import base64
 import uuid
+import json
 from dataclasses import dataclass
 from io import BytesIO
 from typing import List
@@ -129,8 +130,9 @@ for chat_message in st.session_state.messages:
             if chat_message.content.files:  # Change from images to files
                 for file_data in chat_message.content.files:
                     st.divider()
-                    if file_data.type.startswith("image/"):
-                        # Handle images as before
+
+                    if file_data.is_image:
+                        # Handle images
                         st.markdown("Using `st.markdown`")
                         st.markdown(
                             f"![Image example](data:{file_data.type};{file_data.format},{file_data.data})"
@@ -140,34 +142,28 @@ for chat_message in st.session_state.messages:
                         st.markdown("Using `st.image`")
                         image = Image.open(BytesIO(base64.b64decode(file_data.data)))
                         st.image(image)
-                    elif file_data.type == "application/pdf":
-                        st.markdown("PDF File:")
+
+                    else:
+                        # Handle documents
                         st.markdown(f"Filename: {file_data.name}")
-                        pdf_bytes = BytesIO(base64.b64decode(file_data.data))
+                        file_bytes = BytesIO(base64.b64decode(file_data.data))
+
+                        # Only show preview for previewable documents
+                        if file_data.is_previewable:
+                            with st.expander("Preview"):
+                                text_content = file_bytes.getvalue().decode("utf-8")
+                                st.code(text_content)
+
+                            # Reset for download
+                            file_bytes.seek(0)
+
+                        # Download button for all document types
                         st.download_button(
                             label=f"Download {file_data.name}",
-                            data=pdf_bytes,
+                            data=file_bytes,
                             file_name=file_data.name,
                             mime=file_data.type,
-                            key=f"download_{file_data.type}_{uuid.uuid4()}",
-                        )
-                    elif file_data.type == "text/markdown":
-                        st.markdown("Markdown File:")
-                        st.markdown(f"Filename: {file_data.name}")
-                        md_bytes = BytesIO(base64.b64decode(file_data.data))
-
-                        # preview markdown content
-                        with st.expander("Preview"):
-                            md_content = md_bytes.getvalue().decode("utf-8")
-                            st.markdown(md_content)
-
-                        md_bytes.seek(0)  # Reset buffer position for download
-                        st.download_button(
-                            label=f"Download {file_data.name}",
-                            data=md_bytes,
-                            file_name=file_data.name,
-                            mime=file_data.type,
-                            key=f"download_{file_data.type}_{uuid.uuid4()}",
+                            key=f"download_{file_data.file_type}_{uuid.uuid4()}",
                         )
         else:
             st.markdown(chat_message.content)

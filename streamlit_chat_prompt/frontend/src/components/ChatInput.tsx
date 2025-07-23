@@ -22,7 +22,7 @@ import { PromptData } from "./PromptData";
 import { Props } from "./Props";
 import { State } from "./State";
 import { ChatTextField } from "./TextField";
-import { SUPPORTED_FILE_TYPES, SupportedFile, getAcceptedFileString } from './Types';
+import { SUPPORTED_FILE_TYPES, SupportedFile, getAcceptedFileString, isValidFileType, getFileType } from './Types';
 
 export class ChatInput extends StreamlitComponentBase<State, Props> {
   private fileInputRef: React.RefObject<HTMLInputElement>;
@@ -191,23 +191,20 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
     return existingFiles.some(existing =>
       existing.file.name === newFile.name &&
       existing.file.size === newFile.size &&
-      existing.type === (newFile.type.startsWith('image/') ? 'image' :
-        newFile.type === 'application/pdf' ? 'pdf' :
-          'markdown')
+      existing.type === getFileType(newFile)
     );
   }
 
   private async processFile(file: File): Promise<SupportedFile | null> {
     try {
-      const isImage = file.type.startsWith('image/');
-      const isPDF = SUPPORTED_FILE_TYPES.PDF.includes(file.type) ||
-        file.name.toLowerCase().endsWith('.pdf');
-      const isMarkdown = SUPPORTED_FILE_TYPES.MARKDOWN.includes(file.type) ||
-        file.name.toLowerCase().endsWith('.md');
-
-      // Check file counts
+      const fileType = getFileType(file);
+      if (!isValidFileType(file)) {
+        this.showNotification(`Unsupported file type: ${file.type}`, "error");
+        return null;
+      }
+      const isImage = fileType === 'image';
       const currentImageCount = this.state.files.filter(f => f.type === 'image').length;
-      const currentDocumentCount = this.state.files.filter(f => f.type === 'pdf' || f.type === 'markdown').length;
+      const currentDocumentCount = this.state.files.filter(f => f.type !== 'image').length;
 
       if (isImage && currentImageCount >= this.maxImageFileCount) {
         this.showNotification(
@@ -233,35 +230,47 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
         return null;
       }
       // Process based on file type
-      if (isImage) {
-        const processedImage = await processImage(file, this.maxImageFileSizeInBytes, this.maxImageFileDimensionInPixels);
-        if (processedImage) {
+      switch(fileType) {
+        case 'image':
+          const processedImage = await processImage(file, this.maxImageFileSizeInBytes, this.maxImageFileDimensionInPixels);
+          if (processedImage) {
+            return {
+              file: processedImage,
+              type: 'image',
+              preview: URL.createObjectURL(processedImage),
+              size: processedImage.size
+            };
+          }
+          break;
+          
+        case 'pdf':
           return {
-            file: processedImage,
-            type: 'image',
-            preview: URL.createObjectURL(processedImage),
-            size: processedImage.size
+            file,
+            type: 'pdf',
+            preview: undefined,
+            size: file.size
           };
-        }
-      } else if (isPDF) {
-        return {
-          file,
-          type: 'pdf',
-          preview: undefined,
-          size: file.size
-        };
-      } else if (isMarkdown) {
-        const markdownFile = file.type.includes('markdown') ? file :
-          new File([file], file.name, { type: 'text/markdown' });
+          
+        case 'markdown':
+          const markdownFile = file.type.includes('markdown') ? file :
+            new File([file], file.name, { type: 'text/markdown' });
 
-        const preview = await this.generateMarkdownPreview(file);
+          const preview = await this.generateMarkdownPreview(file);
 
-        return {
-          file: markdownFile,
-          type: 'markdown',
-          preview,
-          size: file.size
-        };
+          return {
+            file: markdownFile,
+            type: 'markdown',
+            preview,
+            size: file.size
+          };
+          
+        case 'document':
+          return {
+            file,
+            type: 'document',
+            preview: undefined,
+            size: file.size
+          };
       }
 
       this.showNotification(`Unsupported file type: ${file.type}`, "error");
