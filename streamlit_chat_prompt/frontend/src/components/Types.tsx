@@ -1,4 +1,4 @@
-export type FileType = 'image' | 'pdf' | 'markdown' | 'document'; // | 'audio';
+export type FileType = 'image' | 'document'; // | 'audio';
 
 export interface SupportedFile {
   file: File;
@@ -7,28 +7,46 @@ export interface SupportedFile {
   size: number;
 }
 
+export const PREVIEWABLE_MIME_TYPES = [
+  'text/markdown',
+  'text/plain',
+  'text/html',
+  'text/csv',
+  'application/json'
+] as string[];
+
+export const PREVIEWABLE_EXTENSIONS = [
+  '.md', 
+  '.txt', 
+  '.html', 
+  '.htm', 
+  '.csv', 
+  '.json'
+] as string[];
+
 // Define file extensions and MIME types for each file type
 const FILE_DEFINITIONS = {
   image: {
     mimeTypes: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'],
     extensions: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg']
   },
-  pdf: {
-    mimeTypes: ['application/pdf'],
-    extensions: ['.pdf']
-  },
-  markdown: {
-    mimeTypes: ['text/markdown', 'text/x-markdown'],
-    extensions: ['.md']
-  },
   document: {
     mimeTypes: [
+      // PDF
+      'application/pdf',
+      // Markdown
+      'text/markdown', 
+      'text/x-markdown',
+      // Word
       'application/msword', 
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      // Excel
       'application/vnd.ms-excel', 
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      // PowerPoint
       'application/vnd.ms-powerpoint', 
       'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      // Other text formats
       'text/csv',
       'text/html',
       'text/plain',
@@ -36,9 +54,15 @@ const FILE_DEFINITIONS = {
       'application/json'
     ],
     extensions: [
+      // PDF
+      '.pdf',
+      // Markdown 
+      '.md',
+      // Office formats
       '.doc', '.docx', 
       '.xls', '.xlsx', 
-      '.ppt', '.pptx', 
+      '.ppt', '.pptx',
+      // Other formats 
       '.csv', 
       '.html', '.htm', 
       '.txt', 
@@ -82,9 +106,12 @@ export function getFileType(file: File): FileType {
 // Maintained for backward compatibility
 export const SUPPORTED_FILE_TYPES = {
   IMAGE: FILE_DEFINITIONS.image.mimeTypes,
-  PDF: FILE_DEFINITIONS.pdf.mimeTypes,
-  MARKDOWN: FILE_DEFINITIONS.markdown.mimeTypes,
-  DOCUMENT: FILE_DEFINITIONS.document.mimeTypes
+  DOCUMENT: FILE_DEFINITIONS.document.mimeTypes,
+  // Include these for backward compatibility if needed
+  PDF: FILE_DEFINITIONS.document.mimeTypes.filter(mime => mime === 'application/pdf'),
+  MARKDOWN: FILE_DEFINITIONS.document.mimeTypes.filter(mime => 
+    mime === 'text/markdown' || mime === 'text/x-markdown'
+  )
 };
 
 // Generate accept string for file input
@@ -119,4 +146,20 @@ export function isValidFileType(file: File): boolean {
   }
   
   return false;
+}
+
+export function isPreviewableDocument(file: File): boolean {
+  // Images are always previewable
+  if (file.type.startsWith('image/')) {
+    return true;
+  }
+
+  // Check MIME type first
+  if (PREVIEWABLE_MIME_TYPES.includes(file.type)) {
+    return true;
+  }
+
+  // Fallback to extension check
+  const filename = file.name.toLowerCase();
+  return PREVIEWABLE_EXTENSIONS.some(ext => filename.endsWith(ext));
 }

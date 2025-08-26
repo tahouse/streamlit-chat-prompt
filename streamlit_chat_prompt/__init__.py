@@ -27,6 +27,23 @@ DEFAULT_IMAGE_COUNT = 20
 DEFAULT_DOCUMENT_FILE_SIZE = 4.5 * 1024 * 1024  # 4.5MB
 DEFAULT_DOCUMENT_COUNT = 5
 
+PREVIEWABLE_MIME_TYPES = [
+    'text/markdown',
+    'text/plain',
+    'text/html',
+    'text/csv',
+    'application/json'
+]
+
+PREVIEWABLE_EXTENSIONS = [
+    '.md',
+    '.txt',
+    '.html',
+    '.htm',
+    '.csv',
+    '.json'
+]
+
 # Declare a Streamlit component. `declare_component` returns a function
 # that is used to create instances of the component. We're naming this
 # function "_component_func", with an underscore prefix, because we don't want
@@ -79,19 +96,18 @@ class FileData(BaseModel):
     @property
     def is_previewable(self) -> bool:
         """Returns whether the document can be previewed in the browser"""
+        # Images are always previewable
         if self.is_image:
             return True
 
-        previewable_mime_types = [
-            'text/markdown',
-            'text/plain',
-            'text/html',
-            'text/csv',
-            'application/json'
-        ]
+        # Check MIME type first
+        if self.type in PREVIEWABLE_MIME_TYPES:
+            return True
 
-        return self.type in previewable_mime_types or (
-            self.name and any(self.name.lower().endswith(ext) for ext in ['.md', '.txt', '.html', '.htm', '.csv', '.json'])
+        # Fallback to extension check
+        return bool(
+            self.name and
+            any(self.name.lower().endswith(ext) for ext in PREVIEWABLE_EXTENSIONS)
         )
 
 

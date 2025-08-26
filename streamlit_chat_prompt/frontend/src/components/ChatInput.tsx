@@ -22,7 +22,7 @@ import { PromptData } from "./PromptData";
 import { Props } from "./Props";
 import { State } from "./State";
 import { ChatTextField } from "./TextField";
-import { SUPPORTED_FILE_TYPES, SupportedFile, getAcceptedFileString, isValidFileType, getFileType } from './Types';
+import { SupportedFile, getAcceptedFileString, isValidFileType, isPreviewableDocument, getFileType } from './Types';
 
 export class ChatInput extends StreamlitComponentBase<State, Props> {
   private fileInputRef: React.RefObject<HTMLInputElement>;
@@ -204,73 +204,49 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
       }
       const isImage = fileType === 'image';
       const currentImageCount = this.state.files.filter(f => f.type === 'image').length;
-      const currentDocumentCount = this.state.files.filter(f => f.type !== 'image').length;
+      const currentDocumentCount = this.state.files.filter(f => f.type === 'document').length;
 
       if (isImage && currentImageCount >= this.maxImageFileCount) {
         this.showNotification(
-          `Maximum of ${this.maxImageFileCount} images allowed`,
-          "error"
-        );
-        return null;
-      } else if (!isImage && currentDocumentCount >= this.maxDocumentFileCount) {
-        this.showNotification(
-          `Maximum of ${this.maxDocumentFileCount} documents allowed`,
+          `Maximum of ${this.maxImageFileCount} images reached`,
           "error"
         );
         return null;
       }
-
-      // Check file size for documents
-      if (!isImage && file.size > this.maxDocumentFileSizeInBytes) {
-        const sizeInMb = (this.maxDocumentFileSizeInBytes / (1024 * 1024)).toFixed(1);
+      if (!isImage && currentDocumentCount >= this.maxDocumentFileCount) {
         this.showNotification(
-          `File "${file.name}" exceeds document size limit of ${sizeInMb}MB`,
+          `Maximum of ${this.maxDocumentFileCount} documents reached`,
           "error"
         );
         return null;
       }
       // Process based on file type
-      switch(fileType) {
-        case 'image':
-          const processedImage = await processImage(file, this.maxImageFileSizeInBytes, this.maxImageFileDimensionInPixels);
-          if (processedImage) {
-            return {
-              file: processedImage,
-              type: 'image',
-              preview: URL.createObjectURL(processedImage),
-              size: processedImage.size
-            };
-          }
-          break;
-          
-        case 'pdf':
+      if (isImage) {
+        const processedImage = await processImage(
+          file, 
+          this.maxImageFileSizeInBytes, 
+          this.maxImageFileDimensionInPixels
+        );
+        if (processedImage) {
           return {
-            file,
-            type: 'pdf',
-            preview: undefined,
-            size: file.size
+            file: processedImage,
+            type: 'image',
+            preview: URL.createObjectURL(processedImage),
+            size: processedImage.size
           };
-          
-        case 'markdown':
-          const markdownFile = file.type.includes('markdown') ? file :
-            new File([file], file.name, { type: 'text/markdown' });
-
-          const preview = await this.generateMarkdownPreview(file);
-
-          return {
-            file: markdownFile,
-            type: 'markdown',
-            preview,
-            size: file.size
-          };
-          
-        case 'document':
-          return {
-            file,
-            type: 'document',
-            preview: undefined,
-            size: file.size
-          };
+        }
+      } else {
+        // All non-image files are treated as documents
+        let preview: string | undefined;
+        if (isPreviewableDocument(file)) {
+          preview = await this.generateMarkdownPreview(file);
+        }
+        return {
+          file,
+          type: 'document',
+          preview: preview,
+          size: file.size
+        };
       }
 
       this.showNotification(`Unsupported file type: ${file.type}`, "error");
@@ -306,7 +282,10 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
           const fileName = fileData.name || `default-file-${Math.random().toString(36).slice(2)}`;
           const file = new File([blob], fileName, { type: fileData.type });
 
-          if (fileData.type.startsWith('image/')) {
+          // Use our consolidated type system
+          const fileType = getFileType(file);
+          
+          if (fileType === 'image') {
             const processedImage = await processImage(file, this.maxImageFileSizeInBytes);
             if (processedImage) {
               processedFiles.push({
@@ -316,17 +295,18 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
                 size: processedImage.size
               });
             }
-          } else if (SUPPORTED_FILE_TYPES.PDF.includes(fileData.type)) {
+          } else if (fileType === 'document') {
+            // For previewable documents, generate preview
+            let preview: string | undefined;
+            if (isPreviewableDocument(file)) {
+              preview = await this.generateMarkdownPreview(file);
+            }
+
             processedFiles.push({
               file,
-              type: 'pdf',
-              size: file.size,
-            });
-          } else if (SUPPORTED_FILE_TYPES.MARKDOWN.includes(fileData.type)) {
-            processedFiles.push({
-              file,
-              type: 'markdown',
-              size: file.size,
+              type: 'document',
+              preview,
+              size: file.size
             });
           }
         } catch (error) {
@@ -713,79 +693,45 @@ export class ChatInput extends StreamlitComponentBase<State, Props> {
   }
 
   private renderFilePreview(file: SupportedFile, index: number) {
-    const { theme } = this.props;
+    if (file.type === 'image') {
+      return (
+        <img
+          src={file.preview}
+          alt={`Upload ${index}`}
+          style={{ maxWidth: '100px', maxHeight: '100px', objectFit: 'contain' }}
+        />
+      );
+    } 
 
-    switch (file.type) {
-      case 'image':
-        return file.preview && (
-          <img
-            src={file.preview}
-            alt={`Upload ${index}`}
-            style={{ height: '80px', width: 'auto', objectFit: 'cover' }}
-          />
-        );
-
-      case 'pdf':
-        return (
-          <Box sx={{ p: 1, display: 'flex', alignItems: 'center' }}>
-            <PictureAsPdf sx={{ color: theme?.textColor }} />
-            <Typography sx={{ ml: 1, color: theme?.textColor }}>
-              {file.file.name}
-            </Typography>
-          </Box>
-        );
-
-      case 'markdown':
-        return (
-          <Box
-            sx={{
-              p: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              minWidth: '200px',
-              maxWidth: '300px'
-            }}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
-              <Description sx={{ color: theme?.textColor }} />
-              <Typography
-                sx={{
-                  ml: 1,
-                  color: theme?.textColor,
-                  fontWeight: 'medium'
-                }}
-              >
-                {file.file.name}
-              </Typography>
-            </Box>
-            {file.preview && (
-              <Typography
-                sx={{
-                  color: theme?.textColor,
-                  fontSize: '0.75rem',
-                  opacity: 0.8,
-                  fontFamily: 'monospace',
-                  whiteSpace: 'pre-wrap',
-                  overflow: 'hidden',
-                  maxHeight: '60px',
-                  backgroundColor: `${theme?.secondaryBackgroundColor}66`,
-                  p: 0.5,
-                  borderRadius: 1,
-                }}
-              >
-                {file.preview}
-              </Typography>
-            )}
-          </Box>
-        );
-
-      default:
-        return (
-          <Typography sx={{ p: 1, color: theme?.textColor }}>
-            {file.file.name}
-          </Typography>
-        );
+    // Handle document previews
+    if (isPreviewableDocument(file.file)) {
+      return (
+        <div style={{ padding: '8px', border: '1px solid #e0e0e0', borderRadius: '4px', margin: '4px 0' }}>
+          <div>{file.file.name}</div>
+          {file.preview && (
+            <pre style={{ 
+              margin: '8px 0 0 0',
+              padding: '8px',
+              background: '#f5f5f5',
+              borderRadius: '4px',
+              maxHeight: '200px',
+              overflow: 'auto',
+              whiteSpace: 'pre-wrap',
+              wordWrap: 'break-word'
+            }}>
+              {file.preview}
+            </pre>
+          )}
+        </div>
+      );
     }
+
+    // Default document display without preview
+    return (
+      <div style={{ padding: '8px', border: '1px solid #e0e0e0', borderRadius: '4px', margin: '4px 0' }}>
+        <div>{file.file.name}</div>
+      </div>
+    );
   }
 
   render() {
